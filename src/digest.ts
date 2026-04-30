@@ -66,33 +66,53 @@ async function generateDigest(articles: Article[]): Promise<string> {
     )
     .join("\n\n");
 
-  const prompt = `Tu es un journaliste de veille spécialisé en tech/IA, qui rédige pour un lecteur qui veut être parmi les premiers à exploiter les sauts technologiques. Voici les articles importants de la période, triés par pertinence et résumés :
+  const prompt = `Tu es un journaliste de veille spécialisé en tech/IA. Tu rédiges pour un lecteur qui veut être parmi les premiers à exploiter les sauts technologiques.
+
+Voici les articles importants de la période (triés par pertinence, déjà résumés) :
 
 ${articlesText}
 
-Rédige un compte-rendu en français, au format Markdown, avec la structure suivante :
+============================================
+RÈGLES STRICTES — TU DOIS LES RESPECTER :
+============================================
 
-1. **Titre** : "# Digest — du [date début] au [date fin]"
+1. **N'INVENTE RIEN.** Tu ne dois utiliser QUE les informations présentes dans les résumés ci-dessus. Pas de chiffres, dates, montants, statistiques, noms d'entreprise, URLs ou faits qui ne sont pas explicitement cités dans un article. En cas de doute, **omets**.
 
-2. **Introduction (3-4 phrases)** : grandes tendances de la période, en mettant l'accent sur ce qui change concrètement dans le paysage tech/IA.
+2. **URLS** : N'utilise QUE les URLs présentes dans le champ "Lien" des articles ci-dessus. Tu ne dois jamais générer une URL toi-même. Si tu cites un projet/outil dont l'URL n'est pas dans les sources, ne mets pas de lien — mentionne juste le nom.
 
-3. **🚀 Avancées IA & opportunités à saisir (≈ 50% du digest)** — section principale. Couvre :
-   - Nouveaux modèles, papers majeurs, breakthroughs
-   - Outils/plateformes/SDK qu'on peut tester ou adopter dès maintenant (early access, betas, open source nouveau)
-   - Signaux d'adoption en entreprise (déploiements concrets, retours d'XP)
-   Pour chaque sujet, sois explicite : qu'est-ce que ça permet de faire que je ne pouvais pas faire avant ? Liens en Markdown.
+3. **Pas de remplissage** : si tu manques de matière pour étoffer une section, fais-la plus courte. Mieux vaut bref et exact que long et inventé. Pas de phrases creuses type "les investisseurs pourraient être tentés", "leviers de contrôle", "comprendre les forces du marché".
 
-4. **🛠️ Tech & industrie (≈ 25% du digest)** : mouvements de marché, levées, deals, lancements produits, réglementation tech qui impacte l'adoption.
+4. **Pas de copier-coller** entre sections. Chaque paragraphe doit être unique. Si tu te retrouves à répéter une formule, supprime-la.
 
-5. **🌍 Contexte mondial (≈ 25% du digest)** : géopolitique, conflits, élections, crises majeures. **Ne pas sacrifier la couverture ici** — couvre tous les sujets géopolitiques majeurs (≥ 8/10) sans en omettre. Synthétise par théâtre/région.
+5. **Pas de sous-section décorative** ("Ce que ça permet de faire", "Comment l'exploiter dès maintenant", "Retour d'expérience à surveiller"). Écris des paragraphes denses, factuels.
 
-6. **🎯 3 actions concrètes à prendre cette semaine** : à partir des articles, propose 3 actions précises et faisables (ex: "tester le modèle X via Hugging Face", "lire le paper Y sur arxiv", "suivre la levée Z chez le concurrent A"). Pas de "à surveiller" vague — du concret.
+============================================
+STRUCTURE À PRODUIRE :
+============================================
 
-Règles : sois factuel, dense, sans répéter les résumés tels quels. Synthèse intelligente, pas une liste à puces. Tous les liens en Markdown. Date d'aujourd'hui : ${new Date().toISOString().slice(0, 10)}.`;
+# Digest — du [date début] au [date fin]
+
+**Introduction** (3-4 phrases) : grandes tendances de la période, factuelles, basées strictement sur les articles ci-dessus.
+
+## 🚀 Avancées IA & opportunités à saisir (≈ 50%)
+Pour chaque sujet IA pertinent (nouveaux modèles, papers, outils testables, signaux d'adoption en entreprise), un paragraphe dense de 4-7 phrases. Termine chaque paragraphe par les liens Markdown vers les sources (uniquement celles présentes dans les articles ci-dessus).
+
+## 🛠️ Tech & industrie (≈ 25%)
+Mouvements de marché, levées, deals, lancements produits, réglementation tech. Paragraphes courts, factuels.
+
+## 🌍 Contexte mondial (≈ 25%)
+Géopolitique, conflits, élections, crises majeures. **Couvre tous les sujets ≥ 8/10 sans en omettre.** Une sous-section par grand théâtre (Moyen-Orient, Europe/Ukraine, USA, Asie...). Ne mélange pas les théâtres.
+
+## 🎯 3 actions concrètes à prendre cette semaine
+Trois actions précises et faisables tirées strictement des articles ci-dessus. Format pour chacune : 2-3 phrases qui expliquent quoi faire, et le ou les liens Markdown vers les sources qui justifient l'action. Pas de "à surveiller" vague.
+
+Date d'aujourd'hui : ${new Date().toISOString().slice(0, 10)}.`;
 
   const result = await mistral.chat.complete({
     model: MISTRAL_MODEL,
     messages: [{ role: "user", content: prompt }],
+    temperature: 0.2,
+    topP: 0.9,
   });
   const raw = result.choices?.[0]?.message?.content ?? "";
   return typeof raw === "string"
