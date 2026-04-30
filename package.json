@@ -1,0 +1,23 @@
+{
+  "name": "mon-agent-news",
+  "version": "1.0.0",
+  "description": "Agent IA autonome de veille hebdomadaire",
+  "type": "module",
+  "scripts": {
+    "collect": "tsx src/collect.ts",
+    "digest": "tsx src/digest.ts"
+  },
+  "dependencies": {
+    "@mistralai/mistralai": "^1.5.0",
+    "@mozilla/readability": "^0.5.0",
+    "jsdom": "^25.0.0",
+    "rss-parser": "^3.13.0",
+    "resend": "^4.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.0.0"
+  }
+}

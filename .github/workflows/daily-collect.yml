@@ -1,0 +1,37 @@
+name: Daily News Collection
+
+on:
+  schedule:
+    # Tous les jours à 07:00 UTC (08:00/09:00 Paris selon DST)
+    - cron: "0 7 * * *"
+  workflow_dispatch: # Permet de lancer manuellement depuis GitHub
+
+permissions:
+  contents: write # nécessaire pour committer les articles
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run collection
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: npm run collect
+
+      - name: Commit results
+        run: |
+          git config user.name "news-agent-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/articles/
+          git diff --staged --quiet || git commit -m "📰 Articles du $(date +%Y-%m-%d)"
+          git push
