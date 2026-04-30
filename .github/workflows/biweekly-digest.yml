@@ -1,9 +1,9 @@
-name: Weekly Digest
+name: Biweekly Digest
 
 on:
   schedule:
-    # Tous les dimanches à 18:00 UTC (19:00/20:00 Paris)
-    - cron: "0 18 * * 0"
+    # Mercredi et dimanche à 18:00 UTC (19:00/20:00 Paris) — 2 digests / semaine
+    - cron: "0 18 * * 3,0"
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
             echo "Aucun digest à committer."
             exit 0
           fi
-          git commit -m "📊 Digest hebdo $(date +%Y-%m-%d)"
+          git commit -m "📊 Digest $(date +%Y-%m-%d)"
           for i in 1 2 3; do
             git pull --rebase origin main && git push && exit 0
             echo "Push échoué (tentative $i), retry..."

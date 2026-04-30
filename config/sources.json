@@ -1,6 +1,7 @@
 {
   "sources": [
     { "name": "Hacker News (front page)", "url": "https://hnrss.org/frontpage", "category": "tech" },
+    { "name": "Hacker News (Show HN)", "url": "https://hnrss.org/show", "category": "tech" },
     { "name": "TechCrunch", "url": "https://techcrunch.com/feed/", "category": "tech" },
     { "name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "category": "tech" },
     { "name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "category": "tech" },
@@ -8,6 +9,9 @@
     { "name": "OpenAI Blog", "url": "https://openai.com/blog/rss.xml", "category": "ia" },
     { "name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "category": "ia" },
     { "name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "category": "ia" },
+    { "name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "category": "ia" },
+    { "name": "Sebastian Raschka — Magazine", "url": "https://magazine.sebastianraschka.com/feed", "category": "ia" },
+    { "name": "Latent Space", "url": "https://www.latent.space/feed", "category": "ia" },
     { "name": "Le Monde — International", "url": "https://www.lemonde.fr/international/rss_full.xml", "category": "geopolitique" },
     { "name": "France Info — Monde", "url": "https://www.francetvinfo.fr/monde.rss", "category": "geopolitique" },
     { "name": "BBC — World", "url": "http://feeds.bbci.co.uk/news/world/rss.xml", "category": "geopolitique" },
@@ -15,11 +19,12 @@
     { "name": "DW — World", "url": "https://rss.dw.com/rdf/rss-en-world", "category": "geopolitique" }
   ],
   "interests": [
-    "Avancées en IA et LLMs (nouveaux modèles, recherche, papers importants)",
-    "Outils pour développeurs et frameworks",
+    "PRIORITAIRE — Avancées IA et LLMs : nouveaux modèles, papers majeurs, breakthroughs avec applications concrètes",
+    "PRIORITAIRE — Outils et plateformes émergents adoptables tôt (early-access, betas, open source nouveau, Show HN)",
+    "PRIORITAIRE — Signaux d'adoption en entreprise : produits IA qui prennent (revenus, déploiements, retours d'expérience)",
+    "PRIORITAIRE — Géopolitique mondiale : conflits, élections, relations internationales, crises majeures",
     "Tendances tech majeures et lancements produits",
-    "Géopolitique mondiale, conflits, élections, relations internationales",
-    "Régulation tech et IA (UE, US, autres)"
+    "Régulation tech et IA (UE, US, autres) — surtout si impact direct sur l'adoption"
   ],
   "minScore": 7
 }

@@ -1,11 +1,11 @@
 # 📰 Mon Agent News
 
-Agent IA autonome de veille hebdomadaire. 100% gratuit, t'appartient entièrement.
+Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient entièrement.
 
 ## Ce qu'il fait
 
-- **Chaque matin** : récupère les nouveaux articles depuis ~18 flux RSS (Tech/IA/dev + actu générale/géopolitique + Reddit), télécharge leur contenu complet, demande à Mistral Small de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
-- **Chaque dimanche soir** : compile les articles de la semaine, génère un compte-rendu structuré par thème, te l'envoie par email.
+- **Chaque matin** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à Mistral Small de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
+- **Mercredi et dimanche soir** : compile les articles des 4 derniers jours, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, 3 actions concrètes), te l'envoie par email.
 
 Tout tourne sur GitHub Actions (gratuit), avec Mistral Small (tier gratuit), Resend (gratuit). Les données vivent dans ton repo.
 
@@ -61,15 +61,19 @@ Tu devrais voir un nouveau fichier dans `data/articles/`.
 
 Sur GitHub : **Actions → Daily News Collection → Run workflow**.
 
-Si ça passe au vert, le cron quotidien est opérationnel. Pareil pour `Weekly Digest` quand tu veux tester l'email.
+Si ça passe au vert, le cron quotidien est opérationnel. Pareil pour `Biweekly Digest` quand tu veux tester l'email.
 
 ## Personnalisation
 
 Tout est dans `config/sources.json` :
 
-- **`sources`** : ajoute/enlève des flux RSS (y compris des subreddits via leur flux `.rss`). Le format est simple : `name`, `url`, `category`.
-- **`interests`** : la liste qui guide Mistral pour scorer les articles. Plus c'est précis, mieux c'est.
+- **`sources`** : ajoute/enlève des flux RSS. Le format est simple : `name`, `url`, `category` (`tech`, `ia`, ou `geopolitique`).
+- **`interests`** : la liste qui guide Mistral pour scorer les articles. Préfixe par `PRIORITAIRE` les sujets que tu veux voir remonter en priorité.
 - **`minScore`** : seuil pour qu'un article soit gardé (7 par défaut, monte à 8 si trop de bruit, baisse à 6 si tu ne reçois rien).
+
+Tu peux aussi ajuster dans `src/digest.ts` :
+- `DIGEST_WINDOW_DAYS` (4 par défaut) : combien de jours d'articles le digest couvre.
+- `DIGEST_TOP_N` (50 par défaut) : combien d'articles sont passés à Mistral pour la synthèse.
 
 ## Coûts
 
@@ -84,16 +88,16 @@ Tout est dans `config/sources.json` :
 ```
 mon-agent-news/
 ├── .github/workflows/
-│   ├── daily-collect.yml   # cron quotidien 07:00 UTC
-│   └── weekly-digest.yml   # cron hebdo dimanche 18:00 UTC
+│   ├── daily-collect.yml      # cron quotidien 07:00 UTC
+│   └── biweekly-digest.yml    # cron mercredi + dimanche 18:00 UTC
 ├── src/
-│   ├── collect.ts          # collecte RSS + fetch contenu + scoring Mistral
-│   └── digest.ts           # synthèse hebdo (Mistral) + email
+│   ├── collect.ts             # collecte RSS + fetch contenu + scoring Mistral
+│   └── digest.ts              # synthèse 2x/semaine (Mistral) + email
 ├── config/
-│   └── sources.json        # tes flux + intérêts
+│   └── sources.json           # tes flux + intérêts
 ├── data/
-│   ├── articles/           # JSON quotidiens (auto-commités)
-│   └── digests/            # MD hebdomadaires (auto-commités)
+│   ├── articles/              # JSON quotidiens (auto-commités)
+│   └── digests/               # MD bi-hebdo (auto-commités)
 └── package.json
 ```
 
