@@ -86,6 +86,8 @@ RÈGLES STRICTES — TU DOIS LES RESPECTER :
 
 5. **Pas de sous-section décorative** ("Ce que ça permet de faire", "Comment l'exploiter dès maintenant", "Retour d'expérience à surveiller"). Écris des paragraphes denses, factuels.
 
+6. **Articles 10/10 obligatoires** : tout article noté 10/10 dans la liste ci-dessus DOIT être mentionné dans le digest (en intro, dans une section thématique, ou dans les 3 actions). Aucune omission tolérée pour les articles 10/10.
+
 ============================================
 STRUCTURE À PRODUIRE :
 ============================================
