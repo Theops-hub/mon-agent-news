@@ -1,7 +1,7 @@
 import Parser from "rss-parser";
 import { Mistral } from "@mistralai/mistralai";
 import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import fs from "node:fs/promises";
 import path from "node:path";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
@@ -60,12 +60,15 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<string>
   }
 }
 
+// VirtualConsole muet : étouffe les "Could not parse CSS stylesheet" inoffensifs de jsdom
+const silentConsole = new VirtualConsole();
+
 // Récupère le contenu principal d'un article via Readability (le moteur de Firefox Reader View)
 async function fetchArticleContent(url: string): Promise<string | null> {
   if (!url) return null;
   try {
     const html = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
-    const dom = new JSDOM(html, { url });
+    const dom = new JSDOM(html, { url, virtualConsole: silentConsole });
     const reader = new Readability(dom.window.document);
     const parsed = reader.parse();
     const text = (parsed?.textContent ?? "").replace(/\s+/g, " ").trim();
