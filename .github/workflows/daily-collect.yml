@@ -33,5 +33,15 @@ jobs:
           git config user.name "news-agent-bot"
           git config user.email "bot@users.noreply.github.com"
           git add data/articles/
-          git diff --staged --quiet || git commit -m "📰 Articles du $(date +%Y-%m-%d)"
-          git push
+          if git diff --staged --quiet; then
+            echo "Aucun nouvel article à committer."
+            exit 0
+          fi
+          git commit -m "📰 Articles du $(date +%Y-%m-%d)"
+          # Retry avec rebase si un autre push est arrivé entre-temps
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && exit 0
+            echo "Push échoué (tentative $i), retry..."
+            sleep 3
+          done
+          exit 1
