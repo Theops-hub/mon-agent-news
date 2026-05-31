@@ -27,9 +27,37 @@ if (!process.env.MISTRAL_API_KEY && !process.env.GROQ_API_KEY && !process.env.GE
 
 const resend = new Resend(RESEND_API_KEY);
 
-// Fenêtre du digest : 4 jours (cadence 2x/semaine, mercredi + dimanche)
-const DIGEST_WINDOW_DAYS = 4;
-const DIGEST_TOP_N = 50;
+// Fenêtre du digest : 2 jours (cadence quotidienne, mais on garde une marge
+// au cas où une collecte précédente a raté). La déduplication par URL
+// déjà-envoyée garantit qu'aucun article ne sera envoyé deux fois.
+const DIGEST_WINDOW_DAYS = 2;
+const DIGEST_TOP_N = 30;
+
+// Fichier de tracking des articles déjà envoyés (URL → date d'envoi).
+// Purgé après 60 jours pour éviter qu'il grossisse indéfiniment.
+const SENT_TRACKER_PATH = path.resolve("data/sent.json");
+const SENT_RETENTION_DAYS = 60;
+
+type SentTracker = Record<string, string>; // url → "YYYY-MM-DD"
+
+async function loadSentTracker(): Promise<SentTracker> {
+  try {
+    const raw = await fs.readFile(SENT_TRACKER_PATH, "utf-8");
+    return JSON.parse(raw) as SentTracker;
+  } catch {
+    return {};
+  }
+}
+
+async function saveSentTracker(tracker: SentTracker): Promise<void> {
+  const cutoff = Date.now() - SENT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const pruned: SentTracker = {};
+  for (const [url, date] of Object.entries(tracker)) {
+    if (new Date(date).getTime() >= cutoff) pruned[url] = date;
+  }
+  await fs.mkdir(path.dirname(SENT_TRACKER_PATH), { recursive: true });
+  await fs.writeFile(SENT_TRACKER_PATH, JSON.stringify(pruned, null, 2), "utf-8");
+}
 
 // Charge les articles des derniers jours selon la fenêtre du digest
 async function loadRecentArticles(): Promise<Article[]> {
@@ -179,8 +207,20 @@ function markdownToHtml(md: string): string {
 
 async function main() {
   console.log("Génération du digest...");
-  const articles = await loadRecentArticles();
-  console.log(`${articles.length} articles sur les ${DIGEST_WINDOW_DAYS} derniers jours`);
+  const allArticles = await loadRecentArticles();
+  console.log(`${allArticles.length} articles sur les ${DIGEST_WINDOW_DAYS} derniers jours`);
+
+  // Déduplication : on retire les articles dont l'URL a déjà été envoyée.
+  const sentTracker = await loadSentTracker();
+  const articles = allArticles.filter((a) => a.link && !sentTracker[a.link]);
+  const skipped = allArticles.length - articles.length;
+  if (skipped > 0) console.log(`${skipped} article(s) déjà envoyé(s) précédemment, ignorés`);
+
+  // Si tout a déjà été envoyé, pas d'email — on évite le spam quotidien vide.
+  if (articles.length === 0) {
+    console.log("Aucun article nouveau depuis le dernier digest. Pas d'email envoyé.");
+    return;
+  }
 
   const { markdown: digest, degraded } = await generateDigest(articles);
 
@@ -209,6 +249,14 @@ async function main() {
     process.exit(1);
   }
   console.log(`Email envoyé${degraded ? " (mode dégradé)" : ""}:`, data?.id);
+
+  // Marquer les articles comme envoyés UNIQUEMENT après envoi email réussi,
+  // pour pouvoir réessayer demain si l'email a échoué.
+  for (const a of articles) {
+    if (a.link) sentTracker[a.link] = today;
+  }
+  await saveSentTracker(sentTracker);
+  console.log(`Tracker mis à jour : ${Object.keys(sentTracker).length} URLs en mémoire`);
 }
 
 main().catch((err) => {

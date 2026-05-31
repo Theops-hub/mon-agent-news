@@ -4,8 +4,8 @@ Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient en
 
 ## Ce qu'il fait
 
-- **Chaque matin** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
-- **Mercredi et dimanche soir** : compile les articles des 4 derniers jours, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, 3 actions concrètes), te l'envoie par email.
+- **Chaque matin (07:00 UTC)** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
+- **Chaque soir (18:00 UTC)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, 3 actions concrètes), te l'envoie par email. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois.
 
 Tout tourne sur GitHub Actions (gratuit sur repo public), avec une **chaîne de fallback LLM** (Mistral → Groq → Gemini, tous gratuits) et Resend (gratuit). Si tous les LLM plantent, l'email est envoyé quand même en mode dégradé (articles bruts groupés par catégorie). Si même ça échoue, une issue GitHub est ouverte automatiquement → tu reçois un email natif GitHub.
 
@@ -114,17 +114,18 @@ L'agent est conçu pour ne jamais te laisser sans nouvelles :
 mon-agent-news/
 ├── .github/workflows/
 │   ├── daily-collect.yml      # cron quotidien 07:00 UTC
-│   ├── biweekly-digest.yml    # cron mercredi + dimanche 18:00 UTC
+│   ├── daily-digest.yml       # cron quotidien 18:00 UTC
 │   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue
 ├── src/
 │   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini
 │   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM
-│   └── digest.ts              # synthèse 2x/semaine + email (mode dégradé garanti)
+│   └── digest.ts              # synthèse quotidienne + email (mode dégradé garanti)
 ├── config/
 │   └── sources.json           # tes flux + intérêts
 ├── data/
 │   ├── articles/              # JSON quotidiens (auto-commités)
-│   └── digests/               # MD bi-hebdo (auto-commités)
+│   ├── digests/               # MD quotidiens (auto-commités)
+│   └── sent.json              # tracker URL → date d'envoi (anti-doublons, purge 60j)
 └── package.json
 ```
 
