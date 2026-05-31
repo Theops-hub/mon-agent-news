@@ -1,0 +1,62 @@
+name: Notify on Failure
+
+# Se déclenche après échec de Daily Collection ou Biweekly Digest.
+# Ouvre une issue → GitHub t'envoie un email natif. Filet de sécurité final
+# au cas où même le mode dégradé (envoi d'email Resend) aurait planté.
+
+on:
+  workflow_run:
+    workflows: ["Daily News Collection", "Biweekly Digest"]
+    types: [completed]
+
+permissions:
+  issues: write
+  actions: read
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const title = `⚠️ Échec workflow : ${run.name} (${run.head_branch})`;
+            const body = [
+              `Le workflow **${run.name}** a échoué.`,
+              ``,
+              `- Conclusion : ${run.conclusion}`,
+              `- Date : ${run.created_at}`,
+              `- Run : ${run.html_url}`,
+              ``,
+              `Pense à vérifier ce qui s'est passé (quota API, panne, etc.).`,
+            ].join("\n");
+
+            // Évite le spam : si une issue identique est déjà ouverte, on commente plutôt.
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "agent-failure",
+              per_page: 50,
+            });
+            const sameTitle = existing.find((i) => i.title === title);
+            if (sameTitle) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: sameTitle.number,
+                body: `Nouvel échec : ${run.html_url}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["agent-failure"],
+              });
+            }

@@ -4,10 +4,12 @@ Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient en
 
 ## Ce qu'il fait
 
-- **Chaque matin** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à Mistral Small de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
+- **Chaque matin** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
 - **Mercredi et dimanche soir** : compile les articles des 4 derniers jours, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, 3 actions concrètes), te l'envoie par email.
 
-Tout tourne sur GitHub Actions (gratuit), avec Mistral Small (tier gratuit), Resend (gratuit). Les données vivent dans ton repo.
+Tout tourne sur GitHub Actions (gratuit sur repo public), avec une **chaîne de fallback LLM** (Mistral → Groq → Gemini, tous gratuits) et Resend (gratuit). Si tous les LLM plantent, l'email est envoyé quand même en mode dégradé (articles bruts groupés par catégorie). Si même ça échoue, une issue GitHub est ouverte automatiquement → tu reçois un email natif GitHub.
+
+Les données vivent dans ton repo.
 
 ## Setup (15 minutes)
 
@@ -25,10 +27,22 @@ git push -u origin main
 
 ### 2. Récupérer les clés API gratuites
 
+Tu peux configurer **1, 2 ou 3 providers LLM** — l'agent essaie chacun dans l'ordre Mistral → Groq → Gemini et utilise le premier qui répond. Plus tu en mets, plus tu es résilient. Le minimum c'est 1, le recommandé c'est les 3.
+
 **Mistral API** (plan "Experiment" gratuit) :
 - Va sur https://console.mistral.ai/
 - Crée un compte (carte bancaire demandée pour vérification — rien n'est facturé tant que tu restes en plan Experiment)
 - **API Keys → Create new key**, copie-la
+
+**Groq** (free tier généreux, ~14 400 req/jour, pas de CB) :
+- Va sur https://console.groq.com/
+- Crée un compte (Google/GitHub)
+- **API Keys → Create API Key**, copie-la
+
+**Google Gemini** (1 500 req/jour gratuites, pas de CB) :
+- Va sur https://aistudio.google.com/apikey
+- Connecte-toi avec ton compte Google
+- **Create API Key**, copie-la
 
 **Resend** (3000 emails/mois gratuits) :
 - Crée un compte sur https://resend.com
@@ -43,7 +57,9 @@ Ajoute ces secrets :
 
 | Nom | Valeur |
 |---|---|
-| `MISTRAL_API_KEY` | ta clé Mistral |
+| `MISTRAL_API_KEY` | ta clé Mistral *(optionnel si Groq ou Gemini présent)* |
+| `GROQ_API_KEY` | ta clé Groq *(optionnel si Mistral ou Gemini présent)* |
+| `GEMINI_API_KEY` | ta clé Gemini *(optionnel si Mistral ou Groq présent)* |
 | `RESEND_API_KEY` | ta clé Resend |
 | `EMAIL_TO` | ton email perso |
 | `EMAIL_FROM` | `onboarding@resend.dev` (ou ton domaine vérifié) |
@@ -77,11 +93,20 @@ Tu peux aussi ajuster dans `src/digest.ts` :
 
 ## Coûts
 
-- GitHub Actions : gratuit (largement sous les quotas)
-- Mistral Small : gratuit (plan "Experiment", largement suffisant pour cet usage)
+- GitHub Actions : **gratuit et illimité sur repo public** (sur repo privé, quota 2000 min/mois — le repo a été passé en public pour éviter de buter dessus)
+- Mistral Small / Groq / Gemini : tous gratuits, largement suffisants pour cet usage
 - Resend : gratuit (3000 emails/mois)
 
 **Total : 0 €/mois** tant que tu restes dans les tiers gratuits, ce qui est très large pour cet usage.
+
+## Fiabilité
+
+L'agent est conçu pour ne jamais te laisser sans nouvelles :
+
+1. **Chaîne de fallback LLM** : Mistral → Groq → Gemini. Si l'un est en panne/quota, l'agent bascule automatiquement.
+2. **Mode dégradé** : si TOUS les LLM échouent, le digest est quand même envoyé avec les articles bruts groupés par catégorie (préfixé "⚠️ Digest dégradé").
+3. **Timeouts** : 60s par appel LLM, 15 min max par workflow (filet de sécurité contre les blocages réseau).
+4. **Notification d'échec** : si un workflow plante entièrement, une issue GitHub est ouverte → GitHub t'envoie un email natif. Tu sais qu'il y a un truc à regarder.
 
 ## Structure
 
@@ -89,10 +114,12 @@ Tu peux aussi ajuster dans `src/digest.ts` :
 mon-agent-news/
 ├── .github/workflows/
 │   ├── daily-collect.yml      # cron quotidien 07:00 UTC
-│   └── biweekly-digest.yml    # cron mercredi + dimanche 18:00 UTC
+│   ├── biweekly-digest.yml    # cron mercredi + dimanche 18:00 UTC
+│   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue
 ├── src/
-│   ├── collect.ts             # collecte RSS + fetch contenu + scoring Mistral
-│   └── digest.ts              # synthèse 2x/semaine (Mistral) + email
+│   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini
+│   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM
+│   └── digest.ts              # synthèse 2x/semaine + email (mode dégradé garanti)
 ├── config/
 │   └── sources.json           # tes flux + intérêts
 ├── data/

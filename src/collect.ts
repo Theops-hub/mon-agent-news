@@ -1,10 +1,10 @@
 import Parser from "rss-parser";
-import { Mistral } from "@mistralai/mistralai";
 import { Readability } from "@mozilla/readability";
 import { JSDOM, VirtualConsole } from "jsdom";
 import fs from "node:fs/promises";
 import path from "node:path";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
+import { callLLM } from "./llm.js";
 
 type Source = { name: string; url: string; category: string };
 type Article = {
@@ -26,15 +26,11 @@ const FETCH_TIMEOUT_MS = 12000;
 const MAX_CONTENT_CHARS = 4000;
 const FETCH_CONCURRENCY = 5;
 
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-if (!MISTRAL_API_KEY) {
-  console.error("Missing MISTRAL_API_KEY");
+// Au moins un provider LLM doit être configuré ; le module llm.ts gère le fallback.
+if (!process.env.MISTRAL_API_KEY && !process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
+  console.error("Au moins une clé API LLM doit être configurée (MISTRAL_API_KEY, GROQ_API_KEY ou GEMINI_API_KEY)");
   process.exit(1);
 }
-
-const mistral = new Mistral({ apiKey: MISTRAL_API_KEY });
-// Mistral Small : tier gratuit, rapide, suffisant pour scorer/résumer
-const MISTRAL_MODEL = "mistral-small-latest";
 
 const parser = new Parser({
   timeout: 15000,
@@ -151,13 +147,8 @@ Articles :
 ${articlesText}`;
 
   try {
-    const result = await mistral.chat.complete({
-      model: MISTRAL_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      responseFormat: { type: "json_object" },
-    });
-    const raw = result.choices?.[0]?.message?.content ?? "";
-    const text = typeof raw === "string" ? raw : raw.map((c: { type: string }) => ("text" in c ? (c as { text: string }).text : "")).join("");
+    const { text, provider } = await callLLM({ prompt, jsonMode: true });
+    console.log(`Scoring batch via ${provider}`);
     // Extrait le JSON même si entouré de ```json ... ```
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("No JSON found in response");
@@ -170,7 +161,7 @@ ${articlesText}`;
       return r ? { ...a, score: r.score, reason: r.reason, summary: r.summary } : a;
     });
   } catch (err) {
-    console.error("Erreur Mistral:", (err as Error).message);
+    console.error("Scoring LLM échoué pour ce batch:", (err as Error).message);
     return articles;
   }
 }
@@ -227,9 +218,17 @@ async function main() {
     await new Promise((r) => setTimeout(r, 1500));
   }
 
-  // 5. Filtrage par score minimum
-  const kept = scored.filter((a) => (a.score ?? 0) >= sourcesConfig.minScore);
-  console.log(`${kept.length}/${scored.length} articles retenus (score ≥ ${sourcesConfig.minScore})`);
+  // 5. Filtrage par score minimum — sauf si tous les LLM ont échoué : on garde tout
+  // pour que le digest puisse au moins envoyer les articles bruts en mode dégradé.
+  const anyScored = scored.some((a) => typeof a.score === "number");
+  const kept = anyScored
+    ? scored.filter((a) => (a.score ?? 0) >= sourcesConfig.minScore)
+    : scored;
+  if (anyScored) {
+    console.log(`${kept.length}/${scored.length} articles retenus (score ≥ ${sourcesConfig.minScore})`);
+  } else {
+    console.warn(`Scoring LLM totalement indisponible — sauvegarde des ${scored.length} articles bruts pour fallback digest`);
+  }
 
   // 6. Sauvegarde
   const today = new Date().toISOString().slice(0, 10);
@@ -237,7 +236,7 @@ async function main() {
   await fs.mkdir(outDir, { recursive: true });
   await fs.writeFile(
     path.join(outDir, `${today}.json`),
-    JSON.stringify({ date: today, articles: kept }, null, 2),
+    JSON.stringify({ date: today, articles: kept, unscored: !anyScored }, null, 2),
     "utf-8"
   );
   console.log(`Sauvegardé : data/articles/${today}.json`);

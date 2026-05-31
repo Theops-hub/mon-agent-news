@@ -1,7 +1,7 @@
-import { Mistral } from "@mistralai/mistralai";
 import { Resend } from "resend";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { callLLM } from "./llm.js";
 
 type Article = {
   title: string;
@@ -9,22 +9,22 @@ type Article = {
   source: string;
   category: string;
   pubDate: string;
+  contentSnippet?: string;
   score?: number;
   reason?: string;
   summary?: string;
 };
 
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAIL_TO = process.env.EMAIL_TO;
 const EMAIL_FROM = process.env.EMAIL_FROM ?? "onboarding@resend.dev";
 
-if (!MISTRAL_API_KEY) throw new Error("Missing MISTRAL_API_KEY");
 if (!RESEND_API_KEY) throw new Error("Missing RESEND_API_KEY");
 if (!EMAIL_TO) throw new Error("Missing EMAIL_TO");
+if (!process.env.MISTRAL_API_KEY && !process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
+  throw new Error("Au moins une clé API LLM doit être configurée (MISTRAL_API_KEY, GROQ_API_KEY ou GEMINI_API_KEY)");
+}
 
-const mistral = new Mistral({ apiKey: MISTRAL_API_KEY });
-const MISTRAL_MODEL = "mistral-small-latest";
 const resend = new Resend(RESEND_API_KEY);
 
 // Fenêtre du digest : 4 jours (cadence 2x/semaine, mercredi + dimanche)
@@ -49,9 +49,52 @@ async function loadRecentArticles(): Promise<Article[]> {
   return all;
 }
 
-async function generateDigest(articles: Article[]): Promise<string> {
+// Fallback : si tous les LLM échouent, on assemble manuellement un digest
+// regroupé par catégorie/source pour que l'utilisateur reçoive QUELQUE CHOSE.
+function buildFallbackDigest(articles: Article[], startDate: string, endDate: string): string {
+  const header = `# Digest — du ${startDate} au ${endDate} (mode dégradé)\n\n> ⚠️ Le scoring/résumé IA était indisponible cette fois (tous les providers ont échoué). Voici les articles bruts collectés sur la période, regroupés par catégorie. À parcourir manuellement.\n`;
+
+  if (articles.length === 0) return `${header}\n\nAucun article collecté sur la période.`;
+
+  const byCategory = new Map<string, Article[]>();
+  for (const a of articles) {
+    const list = byCategory.get(a.category) ?? [];
+    list.push(a);
+    byCategory.set(a.category, list);
+  }
+
+  const categoryEmoji: Record<string, string> = {
+    ia: "🚀 IA",
+    tech: "🛠️ Tech",
+    geopolitique: "🌍 Géopolitique",
+  };
+
+  const sections: string[] = [];
+  for (const [cat, list] of byCategory) {
+    const title = categoryEmoji[cat] ?? cat;
+    const items = list
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .map((a) => {
+        const scoreTag = typeof a.score === "number" ? ` _(score ${a.score})_` : "";
+        const summary = a.summary || a.contentSnippet || "";
+        const summaryLine = summary ? `\n  ${summary.slice(0, 400)}` : "";
+        return `- **${a.title}** — ${a.source}${scoreTag}${summaryLine}\n  [Lien](${a.link})`;
+      })
+      .join("\n\n");
+    sections.push(`## ${title}\n\n${items}`);
+  }
+
+  return `${header}\n\n${sections.join("\n\n")}`;
+}
+
+async function generateDigest(articles: Article[]): Promise<{ markdown: string; degraded: boolean }> {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - DIGEST_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
   if (articles.length === 0) {
-    return "# Digest\n\nAucun article notable sur la période.";
+    return { markdown: "# Digest\n\nAucun article notable sur la période.", degraded: false };
   }
 
   // Tri par score décroissant, top N max pour rester dans les limites de tokens
@@ -108,18 +151,17 @@ Géopolitique, conflits, élections, crises majeures. **Couvre tous les sujets �
 ## 🎯 3 actions concrètes à prendre cette semaine
 Trois actions précises et faisables tirées strictement des articles ci-dessus. Format pour chacune : 2-3 phrases qui expliquent quoi faire, et le ou les liens Markdown vers les sources qui justifient l'action. Pas de "à surveiller" vague.
 
-Date d'aujourd'hui : ${new Date().toISOString().slice(0, 10)}.`;
+Date d'aujourd'hui : ${today}.`;
 
-  const result = await mistral.chat.complete({
-    model: MISTRAL_MODEL,
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.2,
-    topP: 0.9,
-  });
-  const raw = result.choices?.[0]?.message?.content ?? "";
-  return typeof raw === "string"
-    ? raw
-    : raw.map((c: { type: string }) => ("text" in c ? (c as { text: string }).text : "")).join("");
+  try {
+    const { text, provider } = await callLLM({ prompt, temperature: 0.2 });
+    console.log(`Digest généré via ${provider}`);
+    return { markdown: text, degraded: false };
+  } catch (err) {
+    console.error("Tous les LLM ont échoué pour le digest :", (err as Error).message);
+    console.warn("Passage en mode dégradé : envoi des articles bruts.");
+    return { markdown: buildFallbackDigest(top, startDate, today), degraded: true };
+  }
 }
 
 function markdownToHtml(md: string): string {
@@ -140,22 +182,24 @@ async function main() {
   const articles = await loadRecentArticles();
   console.log(`${articles.length} articles sur les ${DIGEST_WINDOW_DAYS} derniers jours`);
 
-  const digest = await generateDigest(articles);
+  const { markdown: digest, degraded } = await generateDigest(articles);
 
   // Sauvegarde Markdown
   const today = new Date().toISOString().slice(0, 10);
   const outDir = path.resolve("data/digests");
   await fs.mkdir(outDir, { recursive: true });
-  const filePath = path.join(outDir, `${today}.md`);
+  const fileName = degraded ? `${today}-degraded.md` : `${today}.md`;
+  const filePath = path.join(outDir, fileName);
   await fs.writeFile(filePath, digest, "utf-8");
   console.log(`Digest sauvegardé : ${filePath}`);
 
-  // Envoi email
+  // Envoi email — TOUJOURS, même en mode dégradé
   const html = markdownToHtml(digest);
+  const subjectPrefix = degraded ? "⚠️ Digest dégradé" : "📰 Digest";
   const { data, error } = await resend.emails.send({
     from: EMAIL_FROM!,
     to: EMAIL_TO!,
-    subject: `📰 Digest — ${today}`,
+    subject: `${subjectPrefix} — ${today}`,
     html,
     text: digest,
   });
@@ -164,7 +208,7 @@ async function main() {
     console.error("Erreur envoi email:", error);
     process.exit(1);
   }
-  console.log("Email envoyé:", data?.id);
+  console.log(`Email envoyé${degraded ? " (mode dégradé)" : ""}:`, data?.id);
 }
 
 main().catch((err) => {
