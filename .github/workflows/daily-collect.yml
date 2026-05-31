@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Run collection
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
