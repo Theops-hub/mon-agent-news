@@ -5,20 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
 import { callLLM } from "./llm.js";
-
-type Source = { name: string; url: string; category: string };
-type Article = {
-  title: string;
-  link: string;
-  source: string;
-  category: string;
-  pubDate: string;
-  contentSnippet: string;
-  fullContent?: string;
-  score?: number;
-  reason?: string;
-  summary?: string;
-};
+import type { Source, Article } from "./types.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (compatible; mon-agent-news/1.0; +https://github.com/) news-aggregator-bot";
@@ -65,11 +52,17 @@ async function fetchArticleContent(url: string): Promise<string | null> {
   try {
     const html = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
     const dom = new JSDOM(html, { url, virtualConsole: silentConsole });
-    const reader = new Readability(dom.window.document);
-    const parsed = reader.parse();
-    const text = (parsed?.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (text.length < 200) return null; // probablement une page vide / paywall / JS-only
-    return text.slice(0, MAX_CONTENT_CHARS);
+    try {
+      const reader = new Readability(dom.window.document);
+      const parsed = reader.parse();
+      const text = (parsed?.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (text.length < 200) return null; // probablement une page vide / paywall / JS-only
+      return text.slice(0, MAX_CONTENT_CHARS);
+    } finally {
+      // Libère les timers/ressources internes de jsdom, qui sinon maintiennent
+      // l'event loop en vie longtemps après la fin de la collecte.
+      dom.window.close();
+    }
   } catch (err) {
     console.warn(`Fetch contenu KO (${url}): ${(err as Error).message}`);
     return null;
@@ -126,7 +119,7 @@ async function scoreAndSummarize(articles: Article[]): Promise<Article[]> {
   const interests = sourcesConfig.interests.map((i) => `- ${i}`).join("\n");
   const articlesText = articles
     .map((a, i) => {
-      const body = a.fullContent && a.fullContent.length > 0 ? a.fullContent : a.contentSnippet;
+      const body = a.fullContent || a.contentSnippet || "";
       const label = a.fullContent ? "Contenu" : "Extrait (contenu complet indisponible)";
       return `[${i}] Source: ${a.source} | Catégorie: ${a.category}\nTitre: ${a.title}\n${label} : ${body}`;
     })
@@ -211,11 +204,11 @@ async function main() {
   // 4. Scoring par batch (taille réduite car le contenu complet est plus volumineux)
   const batches = chunk(enriched, 6);
   const scored: Article[] = [];
-  for (const batch of batches) {
-    const result = await scoreAndSummarize(batch);
+  for (let b = 0; b < batches.length; b++) {
+    const result = await scoreAndSummarize(batches[b]);
     scored.push(...result);
-    // petite pause pour être gentil avec l'API
-    await new Promise((r) => setTimeout(r, 1500));
+    // petite pause entre les batches pour être gentil avec l'API (pas après le dernier)
+    if (b < batches.length - 1) await new Promise((r) => setTimeout(r, 1500));
   }
 
   // 5. Filtrage par score minimum — sauf si tous les LLM ont échoué : on garde tout
@@ -242,7 +235,14 @@ async function main() {
   console.log(`Sauvegardé : data/articles/${today}.json`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Sortie explicite : des handles réseau/jsdom résiduels suspendaient le
+    // process plusieurs minutes après la sauvegarde (jusqu'au timeout du
+    // workflow les 8-10 juin 2026, perdant les articles avant le commit).
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

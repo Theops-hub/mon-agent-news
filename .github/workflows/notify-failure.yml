@@ -1,8 +1,10 @@
 name: Notify on Failure
 
-# Se déclenche après échec de Daily Collection ou Biweekly Digest.
+# Se déclenche après échec OU annulation (timeout) de Daily Collection ou Daily Digest.
 # Ouvre une issue → GitHub t'envoie un email natif. Filet de sécurité final
 # au cas où même le mode dégradé (envoi d'email Resend) aurait planté.
+# Le cas "cancelled" est couvert depuis le 11 juin 2026 : les timeouts des
+# 8-10 juin terminaient en "cancelled" et passaient sous le radar.
 
 on:
   workflow_run:
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   notify:
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

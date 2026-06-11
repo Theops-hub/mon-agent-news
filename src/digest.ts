@@ -2,18 +2,7 @@ import { Resend } from "resend";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { callLLM } from "./llm.js";
-
-type Article = {
-  title: string;
-  link: string;
-  source: string;
-  category: string;
-  pubDate: string;
-  contentSnippet?: string;
-  score?: number;
-  reason?: string;
-  summary?: string;
-};
+import type { Article } from "./types.js";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAIL_TO = process.env.EMAIL_TO;
@@ -103,7 +92,7 @@ function buildFallbackDigest(articles: Article[], startDate: string, endDate: st
     const items = list
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
       .map((a) => {
-        const scoreTag = typeof a.score === "number" ? ` _(score ${a.score})_` : "";
+        const scoreTag = typeof a.score === "number" ? ` *(score ${a.score})*` : "";
         const summary = a.summary || a.contentSnippet || "";
         const summaryLine = summary ? `\n  ${summary.slice(0, 400)}` : "";
         return `- **${a.title}** — ${a.source}${scoreTag}${summaryLine}\n  [Lien](${a.link})`;
@@ -157,7 +146,7 @@ RÈGLES STRICTES — TU DOIS LES RESPECTER :
 
 5. **Pas de sous-section décorative** ("Ce que ça permet de faire", "Comment l'exploiter dès maintenant", "Retour d'expérience à surveiller"). Écris des paragraphes denses, factuels.
 
-6. **Articles 10/10 obligatoires** : tout article noté 10/10 dans la liste ci-dessus DOIT être mentionné dans le digest (en intro, dans une section thématique, ou dans les 3 actions). Aucune omission tolérée pour les articles 10/10.
+6. **Articles 10/10 obligatoires** : tout article noté 10/10 dans la liste ci-dessus DOIT être mentionné dans le digest (en intro ou dans une section thématique). Aucune omission tolérée pour les articles 10/10.
 
 ============================================
 STRUCTURE À PRODUIRE :
@@ -176,8 +165,8 @@ Mouvements de marché, levées, deals, lancements produits, réglementation tech
 ## 🌍 Contexte mondial (≈ 25%)
 Géopolitique, conflits, élections, crises majeures. **Couvre tous les sujets ≥ 8/10 sans en omettre.** Une sous-section par grand théâtre (Moyen-Orient, Europe/Ukraine, USA, Asie...). Ne mélange pas les théâtres.
 
-## 🎯 3 actions concrètes à prendre cette semaine
-Trois actions précises et faisables tirées strictement des articles ci-dessus. Format pour chacune : 2-3 phrases qui expliquent quoi faire, et le ou les liens Markdown vers les sources qui justifient l'action. Pas de "à surveiller" vague.
+## 🎯 À tester / appliquer (section OPTIONNELLE)
+Inclus cette section UNIQUEMENT si des articles appellent une action que le lecteur (développeur individuel) peut réaliser lui-même : tester un outil ou modèle disponible publiquement, appliquer une mise à jour de sécurité, essayer une API, lire un paper ou une doc technique. De 1 à 3 actions maximum, chacune en 2-3 phrases avec le ou les liens Markdown vers les sources. Les mouvements de marché, la géopolitique et les annonces corporate ne sont PAS actionnables par le lecteur : n'en tire jamais d'action. Si rien n'est réellement actionnable, OMETS complètement la section — pas de remplissage.
 
 Date d'aujourd'hui : ${today}.`;
 
@@ -192,23 +181,78 @@ Date d'aujourd'hui : ${today}.`;
   }
 }
 
+// Convertisseur Markdown→HTML minimaliste, traité ligne par ligne pour gérer
+// correctement les titres, les listes à puces et les paragraphes (l'ancienne
+// version basée sur des regex globales rendait les puces en texte brut).
 function markdownToHtml(md: string): string {
-  // Conversion minimaliste — Resend rend très bien le HTML simple
-  return md
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/^(.+)$/, "<p>$1</p>");
+  const inline = (s: string): string =>
+    s
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
+
+  const out: string[] = [];
+  let inList = false;
+  const closeList = () => {
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+  };
+
+  for (const raw of md.split("\n")) {
+    const indented = /^\s+\S/.test(raw); // ligne de continuation (indentée)
+    const line = raw.trim();
+
+    if (!line) {
+      closeList();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      out.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+      continue;
+    }
+
+    // Ligne indentée suivant une puce : on la rattache à l'item courant
+    if (indented && inList && out.length > 0) {
+      out[out.length - 1] = out[out.length - 1].replace(/<\/li>$/, `<br>${inline(line)}</li>`);
+      continue;
+    }
+
+    closeList();
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  closeList();
+  return out.join("\n");
 }
 
 async function main() {
   console.log("Génération du digest...");
   const allArticles = await loadRecentArticles();
   console.log(`${allArticles.length} articles sur les ${DIGEST_WINDOW_DAYS} derniers jours`);
+
+  // Zéro article sur toute la fenêtre = la collecte est en panne (timeout,
+  // quota, etc.). On échoue franchement pour que notify-failure ouvre une
+  // issue, au lieu de terminer en "success" silencieux comme du 8 au 10 juin.
+  if (allArticles.length === 0) {
+    console.error(
+      `Aucun article collecté sur les ${DIGEST_WINDOW_DAYS} derniers jours : la collecte quotidienne est probablement en panne. Vérifier le workflow Daily News Collection.`
+    );
+    process.exit(1);
+  }
 
   // Déduplication : on retire les articles dont l'URL a déjà été envoyée.
   const sentTracker = await loadSentTracker();
@@ -259,7 +303,13 @@ async function main() {
   console.log(`Tracker mis à jour : ${Object.keys(sentTracker).length} URLs en mémoire`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Sortie explicite, même logique que collect.ts : ne pas laisser des
+    // handles réseau résiduels suspendre le process jusqu'au timeout.
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
