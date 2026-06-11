@@ -52,11 +52,17 @@ async function fetchArticleContent(url: string): Promise<string | null> {
   try {
     const html = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
     const dom = new JSDOM(html, { url, virtualConsole: silentConsole });
-    const reader = new Readability(dom.window.document);
-    const parsed = reader.parse();
-    const text = (parsed?.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (text.length < 200) return null; // probablement une page vide / paywall / JS-only
-    return text.slice(0, MAX_CONTENT_CHARS);
+    try {
+      const reader = new Readability(dom.window.document);
+      const parsed = reader.parse();
+      const text = (parsed?.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (text.length < 200) return null; // probablement une page vide / paywall / JS-only
+      return text.slice(0, MAX_CONTENT_CHARS);
+    } finally {
+      // Libère les timers/ressources internes de jsdom, qui sinon maintiennent
+      // l'event loop en vie longtemps après la fin de la collecte.
+      dom.window.close();
+    }
   } catch (err) {
     console.warn(`Fetch contenu KO (${url}): ${(err as Error).message}`);
     return null;
@@ -229,7 +235,14 @@ async function main() {
   console.log(`Sauvegardé : data/articles/${today}.json`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Sortie explicite : des handles réseau/jsdom résiduels suspendaient le
+    // process plusieurs minutes après la sauvegarde (jusqu'au timeout du
+    // workflow les 8-10 juin 2026, perdant les articles avant le commit).
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
