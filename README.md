@@ -4,8 +4,9 @@ Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient en
 
 ## Ce qu'il fait
 
-- **Chaque nuit (03:37 UTC, rattrapage à 10:37)** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
-- **Chaque matin (05:07 UTC, rattrapage à 08:07 — réception ~8h heure de Paris)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, et une section « À tester / appliquer » uniquement quand quelque chose est réellement actionnable), te l'envoie par email. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois — c'est aussi ce qui rend les runs de rattrapage inoffensifs.
+- **Chaque nuit (03:37 UTC, rattrapage à 10:37)** : récupère les nouveaux articles depuis 18 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10. Les articles sans date de publication sont écartés et le contenu ancien remis en avant (reposts Hacker News, rétrospectives) est pénalisé : seule l'actu fraîche passe.
+- **Chaque matin (05:07 UTC, rattrapage à 08:07 — réception ~8h heure de Paris)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, et une section « À tester / appliquer » uniquement quand quelque chose est réellement actionnable), te l'envoie par email en HTML mis en page. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois — c'est aussi ce qui rend les runs de rattrapage inoffensifs.
+- **Le 1er du mois (06:07 UTC, rattrapage le 2)** : compare tous les digests quotidiens du mois écoulé et envoie un **bilan mensuel** court — les outils IA les plus intéressants pour ton stack (vibecoding, SaaS, apps web, Claude Code), l'état des LLM locaux, les tendances de fond, et UNE chose à tester. Le profil qui guide cette sélection est dans `config/sources.json` → `profile`.
 
 Tout tourne sur GitHub Actions (gratuit sur repo public), avec une **chaîne de fallback LLM** (Mistral → Groq → Gemini, tous gratuits) et Resend (gratuit). Si tous les LLM plantent, l'email est envoyé quand même en mode dégradé (articles bruts groupés par catégorie). Si même ça échoue, une issue GitHub est ouverte automatiquement → tu reçois un email natif GitHub.
 
@@ -84,7 +85,8 @@ Si ça passe au vert, le cron quotidien est opérationnel. Pareil pour `Biweekly
 Tout est dans `config/sources.json` :
 
 - **`sources`** : ajoute/enlève des flux RSS. Le format est simple : `name`, `url`, `category` (`tech`, `ia`, ou `geopolitique`).
-- **`interests`** : la liste qui guide Mistral pour scorer les articles. Préfixe par `PRIORITAIRE` les sujets que tu veux voir remonter en priorité.
+- **`interests`** : la liste qui guide le LLM pour scorer les articles. Préfixe par `PRIORITAIRE` les sujets que tu veux voir remonter en priorité.
+- **`profile`** : qui tu es et comment tu bosses — c'est ce qui oriente la sélection d'outils du bilan mensuel.
 - **`minScore`** : seuil pour qu'un article soit gardé (7 par défaut, monte à 8 si trop de bruit, baisse à 6 si tu ne reçois rien).
 
 Tu peux aussi ajuster dans `src/digest.ts` :
@@ -118,17 +120,20 @@ mon-agent-news/
 ├── .github/workflows/
 │   ├── daily-collect.yml      # crons 03:37 + rattrapage 10:37 UTC
 │   ├── daily-digest.yml       # crons 05:07 + rattrapage 08:07 UTC (mail ~8h Paris)
+│   ├── monthly-digest.yml     # bilan mensuel le 1er du mois (rattrapage le 2)
 │   ├── llm-healthcheck.yml    # test hebdo de chaque provider LLM (lundi)
 │   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue/timeout
 ├── src/
 │   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini
 │   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM
-│   └── digest.ts              # synthèse quotidienne + email (mode dégradé garanti)
+│   ├── digest.ts              # synthèse quotidienne + email (mode dégradé garanti)
+│   ├── monthly.ts             # bilan mensuel : outils du mois selon ton profil
+│   └── email.ts               # rendu HTML des emails + envoi Resend avec retry
 ├── config/
-│   └── sources.json           # tes flux + intérêts
+│   └── sources.json           # tes flux + intérêts + profil
 ├── data/
 │   ├── articles/              # JSON quotidiens (auto-commités)
-│   ├── digests/               # MD quotidiens (auto-commités)
+│   ├── digests/               # MD quotidiens + monthly/ (auto-commités)
 │   └── sent.json              # tracker URL → date d'envoi (anti-doublons, purge 60j)
 └── package.json
 ```

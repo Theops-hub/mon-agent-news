@@ -96,17 +96,26 @@ async function fetchRecentArticles(source: Source): Promise<Article[]> {
   try {
     const feed = await parser.parseURL(source.url);
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return (feed.items || [])
-      .filter((item) => {
-        if (!item.pubDate) return true; // certains flux n'ont pas de date — on garde
-        return new Date(item.pubDate).getTime() >= cutoff;
-      })
+    // Sans date de publication fiable, impossible de garantir la fraîcheur :
+    // on écarte (des items sans date faisaient remonter de vieux articles).
+    // isoDate est le fallback pour les flux Atom qui n'exposent pas pubDate.
+    const items = feed.items || [];
+    const itemDate = (item: (typeof items)[number]): string => item.pubDate || item.isoDate || "";
+    const dated = items.filter((item) => {
+      const ts = new Date(itemDate(item)).getTime();
+      return Number.isFinite(ts) && ts >= cutoff;
+    });
+    const undatedCount = items.filter((i) => !itemDate(i)).length;
+    if (undatedCount > 0) {
+      console.warn(`${source.name}: ${undatedCount} item(s) sans date de publication écartés`);
+    }
+    return dated
       .map((item) => ({
         title: item.title || "(sans titre)",
         link: item.link || "",
         source: source.name,
         category: source.category,
-        pubDate: item.pubDate || new Date().toISOString(),
+        pubDate: itemDate(item),
         contentSnippet: (item.contentSnippet || item.content || "").slice(0, 500),
       }));
   } catch (err) {
@@ -124,17 +133,19 @@ async function scoreAndSummarize(articles: Article[]): Promise<Article[]> {
     .map((a, i) => {
       const body = a.fullContent || a.contentSnippet || "";
       const label = a.fullContent ? "Contenu" : "Extrait (contenu complet indisponible)";
-      return `[${i}] Source: ${a.source} | Catégorie: ${a.category}\nTitre: ${a.title}\n${label} : ${body}`;
+      return `[${i}] Source: ${a.source} | Catégorie: ${a.category} | Publié: ${a.pubDate}\nTitre: ${a.title}\n${label} : ${body}`;
     })
     .join("\n\n---\n\n");
 
-  const prompt = `Tu es un assistant de veille. Voici mes centres d'intérêt :
+  const prompt = `Tu es un assistant de veille. Nous sommes le ${new Date().toISOString().slice(0, 10)}. Voici mes centres d'intérêt :
 ${interests}
 
 Voici ${articles.length} articles avec leur contenu (souvent complet). Pour CHACUN, donne :
 - "score" : pertinence pour mes intérêts de 1 à 10
 - "reason" : 1 phrase expliquant la note
 - "summary" : résumé en 3-5 phrases en français basé sur le contenu fourni (même si l'article est en anglais). Couvre les faits clés, pas seulement le titre.
+
+RÈGLE DE FRAÎCHEUR (prioritaire sur tout le reste) : je ne veux QUE de l'actualité récente. Si le contenu est manifestement ancien — année passée dans le titre (ex. « ... (2019) »), billet de blog ou paper vieux de plusieurs mois/années remis en avant (fréquent sur Hacker News), rétrospective, anniversaire — donne un score de 3 maximum, même si le sujet correspond à mes intérêts. Seule exception : un fait NOUVEAU à propos d'un sujet ancien (nouvelle version, nouvelle décision, nouveau résultat) reste noté normalement.
 
 Réponds UNIQUEMENT en JSON valide, sous cette forme exacte :
 {"results": [{"index": 0, "score": 8, "reason": "...", "summary": "..."}, ...]}

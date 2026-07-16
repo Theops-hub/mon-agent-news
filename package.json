@@ -6,6 +6,7 @@
   "scripts": {
     "collect": "tsx src/collect.ts",
     "digest": "tsx src/digest.ts",
+    "monthly": "tsx src/monthly.ts",
     "llm-health": "tsx src/llm-health.ts",
     "typecheck": "tsc --noEmit"
   },

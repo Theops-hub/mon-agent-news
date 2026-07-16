@@ -1,0 +1,78 @@
+name: Monthly Digest
+
+on:
+  schedule:
+    # Le 1er du mois à 06:07 UTC : compare les digests quotidiens du mois
+    # écoulé et envoie le bilan « outils IA du mois ». Minute décalée comme
+    # les autres crons (les crons "pile" sont les plus retardés par GitHub).
+    - cron: "7 6 1 * *"
+    # Rattrapage le 2 du mois : sans effet si le bilan du mois existe déjà
+    # (voir le step "guard"), prend le relais si le cron du 1er a été sauté.
+    - cron: "7 6 2 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  monthly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # Garde du cron de rattrapage : si le bilan du mois précédent est déjà
+      # commité, le run du 1er a réussi et on sort sans rien faire.
+      - name: Guard — bilan du mois déjà envoyé ?
+        id: guard
+        run: |
+          PREV_MONTH=$(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -f "data/digests/monthly/${PREV_MONTH}.md" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Bilan ${PREV_MONTH} déjà présent — run de rattrapage inutile."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.guard.outputs.skip != 'true'
+        run: npm run typecheck
+
+      - name: Generate and send monthly digest
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        run: npm run monthly
+
+      - name: Commit monthly digest
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          git config user.name "news-agent-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/digests/monthly/
+          if git diff --staged --quiet; then
+            echo "Aucun bilan à committer."
+            exit 0
+          fi
+          git commit -m "🗓️ Bilan mensuel $(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m)"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && exit 0
+            echo "Push échoué (tentative $i), retry..."
+            sleep 3
+          done
+          exit 1

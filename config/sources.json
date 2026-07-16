@@ -12,6 +12,7 @@
     { "name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "category": "ia" },
     { "name": "Sebastian Raschka — Magazine", "url": "https://magazine.sebastianraschka.com/feed", "category": "ia" },
     { "name": "Latent Space", "url": "https://www.latent.space/feed", "category": "ia" },
+    { "name": "r/LocalLLaMA", "url": "https://www.reddit.com/r/LocalLLaMA/.rss", "category": "ia" },
     { "name": "Le Monde — International", "url": "https://www.lemonde.fr/international/rss_full.xml", "category": "geopolitique" },
     { "name": "France Info — Monde", "url": "https://www.francetvinfo.fr/monde.rss", "category": "geopolitique" },
     { "name": "BBC — World", "url": "http://feeds.bbci.co.uk/news/world/rss.xml", "category": "geopolitique" },
@@ -19,12 +20,15 @@
     { "name": "DW — World", "url": "https://rss.dw.com/rdf/rss-en-world", "category": "geopolitique" }
   ],
   "interests": [
+    "PRIORITAIRE — Outils IA pour développeurs : agents de codage (Claude Code, Cursor, Codex...), vibecoding, IDE et workflows de dev assisté par IA, MCP, tout ce qui aide à construire des SaaS / apps web / sites web plus vite",
+    "PRIORITAIRE — LLM locaux et modèles open-weight : nouveaux modèles exécutables en local (Ollama, llama.cpp, LM Studio...), quantization, matériel grand public pour l'inférence — je veux être alerté dès qu'une solution locale crédible sort",
     "PRIORITAIRE — Avancées IA et LLMs : nouveaux modèles, papers majeurs, breakthroughs avec applications concrètes",
     "PRIORITAIRE — Outils et plateformes émergents adoptables tôt (early-access, betas, open source nouveau, Show HN)",
-    "PRIORITAIRE — Signaux d'adoption en entreprise : produits IA qui prennent (revenus, déploiements, retours d'expérience)",
     "PRIORITAIRE — Géopolitique mondiale : conflits, élections, relations internationales, crises majeures",
+    "Signaux d'adoption en entreprise : produits IA qui prennent (revenus, déploiements, retours d'expérience)",
     "Tendances tech majeures et lancements produits",
     "Régulation tech et IA (UE, US, autres) — surtout si impact direct sur l'adoption"
   ],
+  "profile": "Développeur solo qui fait du vibecoding intensif : il construit des SaaS, des applications web et des sites web avec des agents de codage IA. Abonné Claude Code Max (Anthropic) — tout ce qui améliore Claude Code ou s'y intègre (MCP, skills, workflows) l'intéresse directement. Il suit de près les LLM locaux / open-weight (Ollama, llama.cpp, LM Studio) et veut savoir immédiatement si une solution locale devient assez bonne pour compléter ou remplacer une partie de son usage cloud.",
   "minScore": 7
 }

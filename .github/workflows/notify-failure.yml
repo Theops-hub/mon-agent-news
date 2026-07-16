@@ -8,7 +8,7 @@ name: Notify on Failure
 
 on:
   workflow_run:
-    workflows: ["Daily News Collection", "Daily Digest", "LLM Health Check"]
+    workflows: ["Daily News Collection", "Daily Digest", "Monthly Digest", "LLM Health Check"]
     types: [completed]
 
 permissions:

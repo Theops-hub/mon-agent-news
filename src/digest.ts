@@ -1,20 +1,12 @@
-import { Resend } from "resend";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { callLLM } from "./llm.js";
+import { sendEmail } from "./email.js"; // vérifie aussi RESEND_API_KEY/EMAIL_TO à l'import
 import type { Article } from "./types.js";
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const EMAIL_TO = process.env.EMAIL_TO;
-const EMAIL_FROM = process.env.EMAIL_FROM ?? "onboarding@resend.dev";
-
-if (!RESEND_API_KEY) throw new Error("Missing RESEND_API_KEY");
-if (!EMAIL_TO) throw new Error("Missing EMAIL_TO");
 if (!process.env.MISTRAL_API_KEY && !process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
   throw new Error("Au moins une clé API LLM doit être configurée (MISTRAL_API_KEY, GROQ_API_KEY ou GEMINI_API_KEY)");
 }
-
-const resend = new Resend(RESEND_API_KEY);
 
 // Fenêtre du digest : 2 jours (cadence quotidienne, mais on garde une marge
 // au cas où une collecte précédente a raté). La déduplication par URL
@@ -146,6 +138,8 @@ RÈGLES STRICTES — TU DOIS LES RESPECTER :
 
 5. **Pas de sous-section décorative** ("Ce que ça permet de faire", "Comment l'exploiter dès maintenant", "Retour d'expérience à surveiller"). Écris des paragraphes denses, factuels.
 
+5bis. **Mise en forme des liens** : le texte d'un lien Markdown doit être court et lisible — le nom de la source ou de l'outil (ex. \`[TechCrunch](url)\`, \`[Bonsai 27B](url)\`), JAMAIS l'URL brute ni un chemin type "site.com/2026/07/14/titre-complet". Mets en **gras** les noms d'outils, de modèles et d'entreprises à leur première mention dans chaque paragraphe.
+
 6. **Articles 10/10 obligatoires** : tout article noté 10/10 dans la liste ci-dessus DOIT être mentionné dans le digest (en intro ou dans une section thématique). Aucune omission tolérée pour les articles 10/10.
 
 ============================================
@@ -179,64 +173,6 @@ Date d'aujourd'hui : ${today}.`;
     console.warn("Passage en mode dégradé : envoi des articles bruts.");
     return { markdown: buildFallbackDigest(top, startDate, today), degraded: true };
   }
-}
-
-// Convertisseur Markdown→HTML minimaliste, traité ligne par ligne pour gérer
-// correctement les titres, les listes à puces et les paragraphes (l'ancienne
-// version basée sur des regex globales rendait les puces en texte brut).
-function markdownToHtml(md: string): string {
-  const inline = (s: string): string =>
-    s
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
-
-  const out: string[] = [];
-  let inList = false;
-  const closeList = () => {
-    if (inList) {
-      out.push("</ul>");
-      inList = false;
-    }
-  };
-
-  for (const raw of md.split("\n")) {
-    const indented = /^\s+\S/.test(raw); // ligne de continuation (indentée)
-    const line = raw.trim();
-
-    if (!line) {
-      closeList();
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      closeList();
-      out.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
-      continue;
-    }
-
-    const bullet = line.match(/^[-*]\s+(.+)$/);
-    if (bullet) {
-      if (!inList) {
-        out.push("<ul>");
-        inList = true;
-      }
-      out.push(`<li>${inline(bullet[1])}</li>`);
-      continue;
-    }
-
-    // Ligne indentée suivant une puce : on la rattache à l'item courant
-    if (indented && inList && out.length > 0) {
-      out[out.length - 1] = out[out.length - 1].replace(/<\/li>$/, `<br>${inline(line)}</li>`);
-      continue;
-    }
-
-    closeList();
-    out.push(`<p>${inline(line)}</p>`);
-  }
-  closeList();
-  return out.join("\n");
 }
 
 async function main() {
@@ -277,32 +213,14 @@ async function main() {
   await fs.writeFile(filePath, digest, "utf-8");
   console.log(`Digest sauvegardé : ${filePath}`);
 
-  // Envoi email — TOUJOURS, même en mode dégradé. Retry avec pause pour
-  // survivre aux erreurs transitoires de Resend (réseau, 5xx, rate limit) :
-  // si toutes les tentatives échouent, exit 1 → notify-failure ouvre une issue.
-  const html = markdownToHtml(digest);
+  // Envoi email — TOUJOURS, même en mode dégradé. sendEmail retente 3 fois
+  // puis lève : le catch de main() fait exit 1 → notify-failure ouvre une issue.
   const subjectPrefix = degraded ? "⚠️ Digest dégradé" : "📰 Digest";
-  const EMAIL_MAX_ATTEMPTS = 3;
-  let emailId: string | undefined;
-  for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS; attempt++) {
-    const { data, error } = await resend.emails
-      .send({
-        from: EMAIL_FROM!,
-        to: EMAIL_TO!,
-        subject: `${subjectPrefix} — ${today}`,
-        html,
-        text: digest,
-      })
-      .catch((err: Error) => ({ data: null, error: { message: err.message } }));
-
-    if (!error) {
-      emailId = data?.id;
-      break;
-    }
-    console.error(`Erreur envoi email (tentative ${attempt}/${EMAIL_MAX_ATTEMPTS}):`, error);
-    if (attempt === EMAIL_MAX_ATTEMPTS) process.exit(1);
-    await new Promise((r) => setTimeout(r, 10_000 * attempt));
-  }
+  const emailId = await sendEmail({
+    subject: `${subjectPrefix} — ${today}`,
+    markdown: digest,
+    footerNote: "Digest quotidien",
+  });
   console.log(`Email envoyé${degraded ? " (mode dégradé)" : ""}:`, emailId);
 
   // Marquer les articles comme envoyés UNIQUEMENT après envoi email réussi,
