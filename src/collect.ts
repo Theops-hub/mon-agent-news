@@ -12,6 +12,9 @@ const USER_AGENT =
 const FETCH_TIMEOUT_MS = 12000;
 const MAX_CONTENT_CHARS = 4000;
 const FETCH_CONCURRENCY = 5;
+// Rétention des fichiers d'articles, alignée sur celle de sent.json (60 j) :
+// au-delà, ils ne servent plus ni au digest (fenêtre 2 j) ni à la déduplication.
+const ARTICLES_RETENTION_DAYS = 60;
 
 // Au moins un provider LLM doit être configuré ; le module llm.ts gère le fallback.
 if (!process.env.MISTRAL_API_KEY && !process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
@@ -159,6 +162,21 @@ ${articlesText}`;
   }
 }
 
+// Supprime les fichiers d'articles plus vieux que la rétention, pour que le
+// repo ne grossisse pas indéfiniment (~1000 lignes JSON par jour sinon).
+// Le `git add data/articles/` du workflow stage aussi les suppressions.
+async function pruneOldArticles(dir: string): Promise<void> {
+  const cutoff = Date.now() - ARTICLES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  for (const file of files) {
+    if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(file)) continue;
+    if (new Date(file.slice(0, 10)).getTime() < cutoff) {
+      await fs.unlink(path.join(dir, file));
+      console.log(`Purgé (> ${ARTICLES_RETENTION_DAYS} j) : data/articles/${file}`);
+    }
+  }
+}
+
 // Découpe un tableau en chunks de taille n
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -233,6 +251,9 @@ async function main() {
     "utf-8"
   );
   console.log(`Sauvegardé : data/articles/${today}.json`);
+
+  // 7. Purge des fichiers trop anciens
+  await pruneOldArticles(outDir);
 }
 
 main()

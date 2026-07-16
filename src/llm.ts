@@ -133,10 +133,16 @@ async function callGemini(opts: LLMOptions): Promise<string> {
 }
 
 type Provider = LLMResult["provider"];
-const PROVIDERS: { name: Provider; call: (opts: LLMOptions) => Promise<string> }[] = [
-  { name: "mistral", call: callMistral },
-  { name: "groq", call: callGroq },
-  { name: "gemini", call: callGemini },
+// Exporté pour le healthcheck hebdomadaire (src/llm-health.ts), qui teste
+// chaque provider individuellement pour détecter clés mortes et modèles dépréciés.
+export const PROVIDERS: {
+  name: Provider;
+  call: (opts: LLMOptions) => Promise<string>;
+  configured: boolean;
+}[] = [
+  { name: "mistral", call: callMistral, configured: Boolean(MISTRAL_API_KEY) },
+  { name: "groq", call: callGroq, configured: Boolean(GROQ_API_KEY) },
+  { name: "gemini", call: callGemini, configured: Boolean(GEMINI_API_KEY) },
 ];
 
 // Essaie chaque provider dans l'ordre. Le premier qui répond gagne.

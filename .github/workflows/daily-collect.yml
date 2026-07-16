@@ -2,8 +2,13 @@ name: Daily News Collection
 
 on:
   schedule:
-    # Tous les jours à 07:00 UTC (08:00/09:00 Paris selon DST)
-    - cron: "0 7 * * *"
+    # Collecte principale à 03:37 UTC (05:37/04:37 Paris selon DST), assez tôt
+    # pour que le digest du matin (~05:07 UTC) parte avec les articles du jour.
+    # Minute décalée : les crons "pile" sont les plus retardés par GitHub.
+    - cron: "37 3 * * *"
+    # Cron de rattrapage : ne fait rien si la collecte du jour a déjà réussi
+    # (voir le step "guard"). Couvre les crons sautés/très retardés par GitHub.
+    - cron: "37 10 * * *"
   workflow_dispatch: # Permet de lancer manuellement depuis GitHub
 
 permissions:
@@ -20,18 +25,35 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Garde du cron de rattrapage : si les articles du jour sont déjà dans le
+      # repo, la collecte planifiée a réussi et on sort sans rien faire.
+      # Les lancements manuels (workflow_dispatch) s'exécutent toujours.
+      - name: Guard — collecte du jour déjà faite ?
+        id: guard
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -f "data/articles/$(date +%Y-%m-%d).json" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Articles du jour déjà collectés — run de rattrapage inutile."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v5
+        if: steps.guard.outputs.skip != 'true'
         with:
           node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
         run: npm ci
 
       - name: Typecheck
+        if: steps.guard.outputs.skip != 'true'
         run: npm run typecheck
 
       - name: Run collection
+        if: steps.guard.outputs.skip != 'true'
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -39,6 +61,7 @@ jobs:
         run: npm run collect
 
       - name: Commit results
+        if: steps.guard.outputs.skip != 'true'
         run: |
           git config user.name "news-agent-bot"
           git config user.email "bot@users.noreply.github.com"

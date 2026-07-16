@@ -2,9 +2,15 @@ name: Daily Digest
 
 on:
   schedule:
-    # Tous les jours à 18:00 UTC (19:00/20:00 Paris)
-    # La déduplication par URL côté digest.ts garantit qu'aucun article n'est envoyé deux fois.
-    - cron: "0 18 * * *"
+    # Envoi du matin : 05:07 UTC = 07:07 Paris l'été / 06:07 l'hiver.
+    # GitHub retarde les crons de 30 min à 2 h en pratique → réception ~8h.
+    # La collecte tourne à 03:37 UTC pour que les articles du jour soient prêts.
+    - cron: "7 5 * * *"
+    # Passage de rattrapage 3 h plus tard : si l'envoi du matin a réussi, tous
+    # les articles sont dans sent.json → "aucun article nouveau", pas d'email.
+    # S'il a raté (cron sauté, panne ponctuelle), celui-ci prend le relais.
+    # La déduplication par URL garantit qu'aucun article n'est envoyé deux fois.
+    - cron: "7 8 * * *"
   workflow_dispatch:
 
 permissions:

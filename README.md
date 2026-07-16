@@ -4,8 +4,8 @@ Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient en
 
 ## Ce qu'il fait
 
-- **Chaque matin (07:00 UTC)** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
-- **Chaque soir (18:00 UTC)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, 3 actions concrètes), te l'envoie par email. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois.
+- **Chaque nuit (03:37 UTC, rattrapage à 10:37)** : récupère les nouveaux articles depuis 17 flux RSS (Tech/IA/dev + actu générale/géopolitique), télécharge leur contenu complet, demande à un LLM de noter leur pertinence selon tes intérêts, garde ceux ≥ 7/10.
+- **Chaque matin (05:07 UTC, rattrapage à 08:07 — réception ~8h heure de Paris)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, et une section « À tester / appliquer » uniquement quand quelque chose est réellement actionnable), te l'envoie par email. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois — c'est aussi ce qui rend les runs de rattrapage inoffensifs.
 
 Tout tourne sur GitHub Actions (gratuit sur repo public), avec une **chaîne de fallback LLM** (Mistral → Groq → Gemini, tous gratuits) et Resend (gratuit). Si tous les LLM plantent, l'email est envoyé quand même en mode dégradé (articles bruts groupés par catégorie). Si même ça échoue, une issue GitHub est ouverte automatiquement → tu reçois un email natif GitHub.
 
@@ -105,17 +105,21 @@ L'agent est conçu pour ne jamais te laisser sans nouvelles :
 
 1. **Chaîne de fallback LLM** : Mistral → Groq → Gemini. Si l'un est en panne/quota, l'agent bascule automatiquement.
 2. **Mode dégradé** : si TOUS les LLM échouent, le digest est quand même envoyé avec les articles bruts groupés par catégorie (préfixé "⚠️ Digest dégradé").
-3. **Timeouts** : 60s par appel LLM, 15 min max par workflow (filet de sécurité contre les blocages réseau).
-4. **Notification d'échec** : si un workflow plante entièrement, une issue GitHub est ouverte → GitHub t'envoie un email natif. Tu sais qu'il y a un truc à regarder.
+3. **Timeouts + sortie explicite** : 60s par appel LLM, 20 min max par workflow, et `process.exit` en fin de script (des handles résiduels ont déjà suspendu un run jusqu'au timeout, perdant les articles du jour).
+4. **Crons de rattrapage** : la collecte et le digest ont chacun un second cron quelques heures plus tard, qui ne fait rien si le premier a réussi (garde sur le fichier du jour / tracker `sent.json`) et prend le relais sinon. Couvre les crons sautés ou très retardés par GitHub.
+5. **Retry d'envoi** : 3 tentatives espacées pour l'email Resend avant de déclarer l'échec.
+6. **Notification d'échec** : si un workflow plante OU est annulé par timeout, ou si le digest constate que rien n'a été collecté depuis 2 jours, une issue GitHub est ouverte → GitHub t'envoie un email natif. Aucun mode de panne silencieux connu.
+7. **Healthcheck LLM hebdomadaire** : chaque lundi, un workflow teste chaque provider individuellement (le fallback masque les pannes au quotidien) et alerte si une clé est morte, un quota épuisé, un modèle déprécié, ou s'il reste moins de 2 providers valides.
 
 ## Structure
 
 ```
 mon-agent-news/
 ├── .github/workflows/
-│   ├── daily-collect.yml      # cron quotidien 07:00 UTC
-│   ├── daily-digest.yml       # cron quotidien 18:00 UTC
-│   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue
+│   ├── daily-collect.yml      # crons 03:37 + rattrapage 10:37 UTC
+│   ├── daily-digest.yml       # crons 05:07 + rattrapage 08:07 UTC (mail ~8h Paris)
+│   ├── llm-healthcheck.yml    # test hebdo de chaque provider LLM (lundi)
+│   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue/timeout
 ├── src/
 │   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini
 │   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM

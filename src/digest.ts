@@ -277,22 +277,33 @@ async function main() {
   await fs.writeFile(filePath, digest, "utf-8");
   console.log(`Digest sauvegardé : ${filePath}`);
 
-  // Envoi email — TOUJOURS, même en mode dégradé
+  // Envoi email — TOUJOURS, même en mode dégradé. Retry avec pause pour
+  // survivre aux erreurs transitoires de Resend (réseau, 5xx, rate limit) :
+  // si toutes les tentatives échouent, exit 1 → notify-failure ouvre une issue.
   const html = markdownToHtml(digest);
   const subjectPrefix = degraded ? "⚠️ Digest dégradé" : "📰 Digest";
-  const { data, error } = await resend.emails.send({
-    from: EMAIL_FROM!,
-    to: EMAIL_TO!,
-    subject: `${subjectPrefix} — ${today}`,
-    html,
-    text: digest,
-  });
+  const EMAIL_MAX_ATTEMPTS = 3;
+  let emailId: string | undefined;
+  for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS; attempt++) {
+    const { data, error } = await resend.emails
+      .send({
+        from: EMAIL_FROM!,
+        to: EMAIL_TO!,
+        subject: `${subjectPrefix} — ${today}`,
+        html,
+        text: digest,
+      })
+      .catch((err: Error) => ({ data: null, error: { message: err.message } }));
 
-  if (error) {
-    console.error("Erreur envoi email:", error);
-    process.exit(1);
+    if (!error) {
+      emailId = data?.id;
+      break;
+    }
+    console.error(`Erreur envoi email (tentative ${attempt}/${EMAIL_MAX_ATTEMPTS}):`, error);
+    if (attempt === EMAIL_MAX_ATTEMPTS) process.exit(1);
+    await new Promise((r) => setTimeout(r, 10_000 * attempt));
   }
-  console.log(`Email envoyé${degraded ? " (mode dégradé)" : ""}:`, data?.id);
+  console.log(`Email envoyé${degraded ? " (mode dégradé)" : ""}:`, emailId);
 
   // Marquer les articles comme envoyés UNIQUEMENT après envoi email réussi,
   // pour pouvoir réessayer demain si l'email a échoué.
