@@ -13,10 +13,15 @@ import type { Article } from "./types.js";
 // que le digest mentionne, donc les seuls à marquer comme envoyés.
 export const DIGEST_TOP_N = 30;
 
-// Taille des batches de scoring : réduite car le contenu complet est volumineux.
-const SCORING_BATCH_SIZE = 6;
-// Petite pause entre les batches pour être gentil avec l'API.
-const SCORING_BATCH_PAUSE_MS = 1500;
+// Taille des batches de scoring. Elle arbitre entre volume du prompt (le
+// contenu complet est lourd) et NOMBRE d'appels — et c'est le nombre d'appels
+// qui coince : les offres gratuites limitent les requêtes par minute, pas les
+// tokens. 12 articles par appel divise par deux les requêtes d'un run.
+const SCORING_BATCH_SIZE = 12;
+// Pause entre batches, calibrée pour rester sous les ~10 requêtes/minute des
+// paliers gratuits. À 1,5 s, le rattrapage du 7 septembre 2026 tapait ~40
+// req/min et se faisait rate-limiter dès le premier jour.
+const SCORING_BATCH_PAUSE_MS = 6000;
 
 // Découpe un tableau en chunks de taille n
 function chunk<T>(arr: T[], size: number): T[][] {

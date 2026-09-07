@@ -27,11 +27,15 @@ export type LLMResult = {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-// Retry : 3 tentatives par provider, backoff 2s → 4s, plafonné à 20s. Le plafond
-// compte : la collecte enchaîne ~28 batches dans un workflow limité à 20 min.
+// Retry : 3 tentatives par provider, backoff 2s → 4s, plafonné à 60s.
 const MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 2_000;
-const BACKOFF_CAP_MS = 20_000;
+const BACKOFF_CAP_MS = 60_000;
+// Un 429 se traite différemment d'un 503 : les quotas gratuits se comptent par
+// MINUTE, donc attendre 2s puis 4s ne sert à rien — il faut laisser la fenêtre
+// se vider. Le rattrapage du 7 septembre 2026 l'a appris à ses dépens : il
+// saturait Gemini, repartait trop vite, et re-saturait aussitôt.
+const RATE_LIMIT_BACKOFF_BASE_MS = 20_000;
 
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -80,8 +84,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Le serveur sait mieux que nous quand revenir : Retry-After prime sur le
 // backoff calculé, mais reste plafonné pour ne pas manger le budget du workflow.
 // Le jitter évite que tous les batches se resynchronisent sur la même fenêtre de quota.
-function backoffMs(attempt: number, retryAfterMs?: number): number {
-  const exponential = Math.min(BACKOFF_BASE_MS * 2 ** (attempt - 1), BACKOFF_CAP_MS);
+function backoffMs(attempt: number, err: unknown): number {
+  const isRateLimit = err instanceof LLMHttpError && err.status === 429;
+  const base = isRateLimit ? RATE_LIMIT_BACKOFF_BASE_MS : BACKOFF_BASE_MS;
+  const exponential = Math.min(base * 2 ** (attempt - 1), BACKOFF_CAP_MS);
+  const retryAfterMs = err instanceof LLMHttpError ? err.retryAfterMs : undefined;
   const wait = retryAfterMs === undefined ? exponential : Math.min(retryAfterMs, BACKOFF_CAP_MS);
   return wait + Math.floor(Math.random() * 500);
 }
@@ -229,7 +236,7 @@ export async function callProvider(
       lastError = err;
       if (isPermanent(err)) throw err;
       if (attempt === maxAttempts) break;
-      const wait = backoffMs(attempt, (err as LLMHttpError).retryAfterMs);
+      const wait = backoffMs(attempt, err);
       console.warn(
         `${provider.name} : échec transitoire (${(err as Error).message.slice(0, 120)}) — ` +
           `nouvelle tentative dans ${Math.round(wait / 1000)}s [${attempt}/${maxAttempts - 1}]`
@@ -246,11 +253,11 @@ export async function callProvider(
 const disabled = new Map<ProviderName, string>();
 
 // Provider en pause après avoir épuisé son budget de retry sur une erreur
-// transitoire. Un quota Mistral épuisé ne se rétablit pas dans la seconde :
-// sans cette pause, chaque batch repayait ~6 s de backoff pour un provider
-// qu'on sait déjà indisponible — soit ~12 min de pure attente sur un
-// rattrapage de 124 batches.
-const RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+// transitoire : inutile de repayer le backoff à chaque appel d'un run qui en
+// enchaîne des dizaines. 60 s et pas plus — les quotas gratuits se comptent
+// par minute, donc un provider rate-limité redevient utilisable très vite, et
+// une pause trop longue écarterait à tort le seul provider qui fonctionne.
+const RATE_LIMIT_COOLDOWN_MS = 60_000;
 const cooldownUntil = new Map<ProviderName, number>();
 
 // Essaie chaque provider dans l'ordre. Le premier qui répond gagne.
@@ -300,7 +307,7 @@ export async function callLLM(opts: LLMOptions): Promise<LLMResult> {
         } else {
           cooldownUntil.set(name, Date.now() + RATE_LIMIT_COOLDOWN_MS);
           console.warn(
-            `LLM ${name} mis en pause ${RATE_LIMIT_COOLDOWN_MS / 60_000} min après épuisement des tentatives.`
+            `LLM ${name} mis en pause ${RATE_LIMIT_COOLDOWN_MS / 1000}s après épuisement des tentatives.`
           );
         }
         errors.push(msg);

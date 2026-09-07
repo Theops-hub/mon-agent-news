@@ -20,8 +20,10 @@ jobs:
   catchup:
     runs-on: ubuntu-latest
     # Plus long que le digest quotidien : le rattrapage note plusieurs centaines
-    # d'articles jamais résumés, sur plusieurs jours, avec pauses entre batches.
-    timeout-minutes: 45
+    # d'articles jamais résumés, sur plusieurs jours, et s'auto-limite à ~10
+    # requêtes/minute pour rester dans les paliers gratuits. Compter ~10 min
+    # par jour rattrapé, d'où une marge large.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
 
