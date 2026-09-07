@@ -1,0 +1,69 @@
+name: Catch-up Digest
+
+# Rattrapage manuel des jours partis en mode dégradé : régénère de vrais
+# digests à partir des articles déjà collectés, les envoie par mail et répare
+# data/articles/ + data/sent.json au passage.
+# Uniquement manuel — c'est une opération de réparation, pas une routine.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: "Jours à rattraper, séparés par des espaces (ex. 2026-09-04 2026-09-05)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  catchup:
+    runs-on: ubuntu-latest
+    # Plus long que le digest quotidien : le rattrapage note plusieurs centaines
+    # d'articles jamais résumés, sur plusieurs jours, avec pauses entre batches.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run catch-up
+        env:
+          # Passé par l'environnement et non interpolé dans la commande :
+          # ${{ inputs.dates }} en clair dans un `run:` serait une injection shell.
+          DATES: ${{ inputs.dates }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        # Non quoté volontairement : les dates doivent être découpées en
+        # arguments séparés. catchup.ts ne retient que ce qui matche YYYY-MM-DD.
+        run: npm run catchup -- $DATES
+
+      - name: Commit results
+        run: |
+          git config user.name "news-agent-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/articles/ data/digests/ data/sent.json
+          if git diff --staged --quiet; then
+            echo "Rien à committer."
+            exit 0
+          fi
+          git commit -m "🔁 Rattrapage des digests dégradés"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && exit 0
+            echo "Push échoué (tentative $i), retry..."
+            sleep 3
+          done
+          exit 1

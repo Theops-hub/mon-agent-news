@@ -125,11 +125,14 @@ mon-agent-news/
 │   ├── daily-digest.yml       # crons 05:07 + rattrapage 08:07 UTC (mail ~8h Paris)
 │   ├── monthly-digest.yml     # bilan mensuel le 1er du mois (rattrapage le 2)
 │   ├── llm-healthcheck.yml    # test hebdo de chaque provider LLM (lundi)
+│   ├── catchup-digest.yml     # rattrapage manuel des jours partis en mode dégradé
 │   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue/timeout
 ├── src/
-│   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini
+│   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini + retry
+│   ├── digest-core.ts         # scoring et rédaction du digest (partagés)
 │   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM
 │   ├── digest.ts              # synthèse quotidienne + email (mode dégradé garanti)
+│   ├── catchup.ts             # régénère les digests d'un jour passé + email
 │   ├── monthly.ts             # bilan mensuel : outils du mois selon ton profil
 │   └── email.ts               # rendu HTML des emails + envoi Resend avec retry
 ├── config/
@@ -139,6 +142,38 @@ mon-agent-news/
 │   ├── digests/               # MD quotidiens + monthly/ (auto-commités)
 │   └── sent.json              # tracker URL → date d'envoi (anti-doublons, purge 60j)
 └── package.json
+```
+
+## Rattraper des jours partis en mode dégradé
+
+Si la chaîne LLM tombe, le digest part quand même mais en mode dégradé : articles
+bruts, sans notation ni résumé. Les articles restent stockés dans
+`data/articles/` — rien n'est perdu, ils n'ont juste jamais été résumés.
+
+Une fois la cause corrigée (vérifier d'abord avec le workflow **LLM Health
+Check**), lance le workflow **Catch-up Digest** depuis l'onglet Actions, en
+passant les jours à rattraper séparés par des espaces :
+
+```
+2026-09-04 2026-09-05 2026-09-06 2026-09-07
+```
+
+Pour chaque jour, il note et résume les articles, réécrit
+`data/articles/<jour>.json` avec les scores, envoie un mail
+« 📰 Digest (rattrapage) — <jour> » et remplace `data/digests/<jour>-degraded.md`
+par un `<jour>.md` propre (sans ça, le bilan mensuel compterait le jour deux fois).
+
+Les articles de ces jours-là avaient été marqués « envoyés » dans `sent.json`
+sans l'avoir été : le rattrapage libère ces entrées avant de commencer, puis ne
+remarque que ce qui part réellement. La déduplication reste active **entre** les
+jours rattrapés. Si la chaîne LLM est toujours en panne, le rattrapage s'arrête
+au premier jour au lieu d'envoyer un second digest dégradé.
+
+En local :
+
+```bash
+MISTRAL_API_KEY=xxx RESEND_API_KEY=xxx EMAIL_TO=toi@exemple.fr \
+  npm run catchup -- 2026-09-04 2026-09-05
 ```
 
 ## Améliorations possibles plus tard

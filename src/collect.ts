@@ -4,7 +4,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import fs from "node:fs/promises";
 import path from "node:path";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
-import { callLLM } from "./llm.js";
+import { scoreInBatches } from "./digest-core.js";
 import type { Source, Article } from "./types.js";
 
 const USER_AGENT =
@@ -124,55 +124,6 @@ async function fetchRecentArticles(source: Source): Promise<Article[]> {
   }
 }
 
-// Demande à Gemini de noter et résumer chaque article (par batch pour économiser des appels)
-async function scoreAndSummarize(articles: Article[]): Promise<Article[]> {
-  if (articles.length === 0) return [];
-
-  const interests = sourcesConfig.interests.map((i) => `- ${i}`).join("\n");
-  const articlesText = articles
-    .map((a, i) => {
-      const body = a.fullContent || a.contentSnippet || "";
-      const label = a.fullContent ? "Contenu" : "Extrait (contenu complet indisponible)";
-      return `[${i}] Source: ${a.source} | Catégorie: ${a.category} | Publié: ${a.pubDate}\nTitre: ${a.title}\n${label} : ${body}`;
-    })
-    .join("\n\n---\n\n");
-
-  const prompt = `Tu es un assistant de veille. Nous sommes le ${new Date().toISOString().slice(0, 10)}. Voici mes centres d'intérêt :
-${interests}
-
-Voici ${articles.length} articles avec leur contenu (souvent complet). Pour CHACUN, donne :
-- "score" : pertinence pour mes intérêts de 1 à 10
-- "reason" : 1 phrase expliquant la note
-- "summary" : résumé en 3-5 phrases en français basé sur le contenu fourni (même si l'article est en anglais). Couvre les faits clés, pas seulement le titre.
-
-RÈGLE DE FRAÎCHEUR (prioritaire sur tout le reste) : je ne veux QUE de l'actualité récente. Si le contenu est manifestement ancien — année passée dans le titre (ex. « ... (2019) »), billet de blog ou paper vieux de plusieurs mois/années remis en avant (fréquent sur Hacker News), rétrospective, anniversaire — donne un score de 3 maximum, même si le sujet correspond à mes intérêts. Seule exception : un fait NOUVEAU à propos d'un sujet ancien (nouvelle version, nouvelle décision, nouveau résultat) reste noté normalement.
-
-Réponds UNIQUEMENT en JSON valide, sous cette forme exacte :
-{"results": [{"index": 0, "score": 8, "reason": "...", "summary": "..."}, ...]}
-
-Articles :
-${articlesText}`;
-
-  try {
-    const { text, provider } = await callLLM({ prompt, jsonMode: true });
-    console.log(`Scoring batch via ${provider}`);
-    // Extrait le JSON même si entouré de ```json ... ```
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON found in response");
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      results: { index: number; score: number; reason: string; summary: string }[];
-    };
-
-    return articles.map((a, i) => {
-      const r = parsed.results.find((x) => x.index === i);
-      return r ? { ...a, score: r.score, reason: r.reason, summary: r.summary } : a;
-    });
-  } catch (err) {
-    console.error("Scoring LLM échoué pour ce batch:", (err as Error).message);
-    return articles;
-  }
-}
-
 // Supprime les fichiers d'articles plus vieux que la rétention, pour que le
 // repo ne grossisse pas indéfiniment (~1000 lignes JSON par jour sinon).
 // Le `git add data/articles/` du workflow stage aussi les suppressions.
@@ -186,13 +137,6 @@ async function pruneOldArticles(dir: string): Promise<void> {
       console.log(`Purgé (> ${ARTICLES_RETENTION_DAYS} j) : data/articles/${file}`);
     }
   }
-}
-
-// Découpe un tableau en chunks de taille n
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
 }
 
 async function main() {
@@ -230,15 +174,8 @@ async function main() {
   const fetchedCount = enriched.filter((a) => a.fullContent).length;
   console.log(`Contenu complet récupéré pour ${fetchedCount}/${enriched.length} articles`);
 
-  // 4. Scoring par batch (taille réduite car le contenu complet est plus volumineux)
-  const batches = chunk(enriched, 6);
-  const scored: Article[] = [];
-  for (let b = 0; b < batches.length; b++) {
-    const result = await scoreAndSummarize(batches[b]);
-    scored.push(...result);
-    // petite pause entre les batches pour être gentil avec l'API (pas après le dernier)
-    if (b < batches.length - 1) await new Promise((r) => setTimeout(r, 1500));
-  }
+  // 4. Scoring par batch (logique partagée avec le rattrapage, cf. digest-core.ts)
+  const scored = await scoreInBatches(enriched);
 
   // 5. Filtrage par score minimum. Un article SANS score n'a pas été jugé non
   // pertinent : son batch a échoué. On le garde — l'absence de note n'est pas
