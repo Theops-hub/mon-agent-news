@@ -8,6 +8,8 @@ Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient en
 - **Chaque matin (05:07 UTC, rattrapage à 08:07 — réception ~8h heure de Paris)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, et une section « À tester / appliquer » uniquement quand quelque chose est réellement actionnable), te l'envoie par email en HTML mis en page. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois — c'est aussi ce qui rend les runs de rattrapage inoffensifs.
 - **Le 1er du mois (06:07 UTC, rattrapage le 2)** : compare tous les digests quotidiens du mois écoulé et envoie un **bilan mensuel** court — les outils IA les plus intéressants pour ton stack (vibecoding, SaaS, apps web, Claude Code), l'état des LLM locaux, les tendances de fond, et UNE chose à tester. Le profil qui guide cette sélection est dans `config/sources.json` → `profile`.
 
+> ⚠️ **Les paliers gratuits ne suffisent pas au volume quotidien.** Un digest, c'est ~165 articles à noter, soit une dizaine d'appels avec le contenu complet. En septembre 2026, le quota Mistral épuisé et Gemini refusant les requêtes de taille réelle ont mis l'agent en mode dégradé pendant quatre jours, et le rattrapage a échoué deux fois pour la même raison. Une clé payante à petit budget sur **un seul** provider est le vrai correctif ; tout le reste est du contournement.
+
 Tout tourne sur GitHub Actions (gratuit sur repo public), avec une **chaîne de fallback LLM** (Mistral → Groq → Gemini, tous gratuits) et Resend (gratuit). Si tous les LLM plantent, l'email est envoyé quand même en mode dégradé (articles bruts groupés par catégorie). Si même ça échoue, une issue GitHub est ouverte automatiquement → tu reçois un email natif GitHub.
 
 Les données vivent dans ton repo.
@@ -124,11 +126,16 @@ mon-agent-news/
 │   ├── daily-collect.yml      # crons 03:37 + rattrapage 10:37 UTC
 │   ├── daily-digest.yml       # crons 05:07 + rattrapage 08:07 UTC (mail ~8h Paris)
 │   ├── monthly-digest.yml     # bilan mensuel le 1er du mois (rattrapage le 2)
-│   ├── llm-healthcheck.yml    # test hebdo de chaque provider LLM (lundi)
+│   ├── llm-healthcheck.yml    # test hebdo de chaque provider LLM (lundi 06:11)
+│   ├── feed-healthcheck.yml   # test hebdo de chaque flux RSS (lundi 06:41)
 │   ├── catchup-digest.yml     # rattrapage manuel des jours partis en mode dégradé
+│   ├── send-digest.yml        # envoie par mail un digest déjà écrit (sans LLM)
 │   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue/timeout
 ├── src/
 │   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini + retry
+│   ├── host-queue.ts          # sérialise les requêtes RSS par domaine
+│   ├── feed-health.ts         # vérifie que chaque flux répond et date ses articles
+│   ├── send-digest.ts         # envoi d'un digest existant, sans appel LLM
 │   ├── digest-core.ts         # scoring et rédaction du digest (partagés)
 │   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM
 │   ├── digest.ts              # synthèse quotidienne + email (mode dégradé garanti)
@@ -143,6 +150,43 @@ mon-agent-news/
 │   └── sent.json              # tracker URL → date d'envoi (anti-doublons, purge 60j)
 └── package.json
 ```
+
+## Sources et flux RSS
+
+Les sources sont dans `config/sources.json`, réparties en trois catégories :
+`ia`, `tech` et `business`. La catégorie `business` alimente la section
+« 💰 Idées marché à saisir » du digest.
+
+**Avant d'ajouter une source**, lance le workflow **Feed Health Check** : il
+vérifie que chaque flux répond, parse, et surtout **date ses articles** — un
+flux sans dates est inutilisable, puisque la collecte écarte tout article non
+daté pour garantir la fraîcheur. Sans ce check, un flux mort ne se voyait pas :
+`collect.ts` se contente d'un avertissement dans les logs et rend un tableau
+vide, donc le digest s'appauvrit en silence.
+
+⚠️ **Reddit : un seul flux, pas deux.** Depuis les IP des runners GitHub,
+Reddit ne laisse passer qu'une requête par run et renvoie 429 aux suivantes,
+quel que soit l'espacement entre elles — c'est un quota par IP, pas une limite
+de débit. Le créneau est occupé par `r/LocalLLaMA`. En ajouter un second rend
+le healthcheck rouge chaque semaine et laisse une source muette.
+
+Les requêtes sont sérialisées par domaine (`src/host-queue.ts`) : parallèle
+entre hôtes, séquentiel à l'intérieur d'un hôte avec 5 s d'écart. Utile pour
+`hnrss.org`, qui sert trois flux.
+
+## Envoyer un digest déjà écrit
+
+Si un digest existe dans `data/digests/<jour>.md` et qu'il ne reste qu'à le
+livrer — chaîne LLM à court de quota, digest rédigé à la main, renvoi demandé —
+le workflow **Send Digest** l'envoie **sans appeler aucun provider** :
+
+```
+2026-09-04 2026-09-05
+```
+
+Tous les fichiers sont lus avant le premier envoi : si un jour manque, la
+commande échoue sans qu'aucun mail ne soit parti. L'outil ne touche pas à
+`data/sent.json` et n'a aucune protection contre le double envoi.
 
 ## Rattraper des jours partis en mode dégradé
 
