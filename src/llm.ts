@@ -107,11 +107,17 @@ async function fetchWithTimeout(
   }
 }
 
+// 800 caractères et non 300 : sur un 429, Google nomme la métrique dépassée
+// (« Quota exceeded for metric ... ») APRÈS le texte générique. À 300, le
+// message était tronqué juste avant, et deux diagnostics successifs se sont
+// trompés faute de savoir si la limite portait sur les requêtes ou les tokens.
+const ERROR_EXCERPT_CHARS = 800;
+
 async function assertOk(res: Response): Promise<void> {
   if (res.ok) return;
   const errText = await res.text().catch(() => "");
   throw new LLMHttpError(
-    `HTTP ${res.status}: ${errText.slice(0, 300)}`,
+    `HTTP ${res.status}: ${errText.slice(0, ERROR_EXCERPT_CHARS)}`,
     res.status,
     parseRetryAfter(res.headers.get("retry-after"))
   );
