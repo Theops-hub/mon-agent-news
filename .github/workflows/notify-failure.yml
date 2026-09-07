@@ -45,13 +45,52 @@ jobs:
               labels: "agent-failure",
               per_page: 50,
             });
-            const sameTitle = existing.find((i) => i.title === title);
+            // startsWith et non égalité stricte : le titre est enrichi d'un
+            // compteur (« — N échecs depuis le … ») dès la 2e occurrence, et une
+            // égalité stricte rouvrirait une issue neuve à chaque échec.
+            const sameTitle = existing.find((i) => i.title.startsWith(title));
             if (sameTitle) {
+              // Une panne qui dure doit devenir plus visible, pas moins. Le
+              // healthcheck LLM a échoué 7 semaines d'affilée en juillet-août 2026
+              // sans que personne ne réagisse : chaque échec n'ajoutait qu'un
+              // « Nouvel échec : <url> » anonyme au fil d'une issue déjà lue.
+              // On compte les récurrences et on renomme l'issue pour que le
+              // compteur apparaisse dans l'objet de l'email GitHub.
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: sameTitle.number,
+                per_page: 100,
+              });
+              // On ne compte que nos propres comptes rendus : une réponse humaine
+              // sur l'issue ne doit pas gonfler le compteur d'échecs.
+              const previous = comments.filter((c) =>
+                (c.body || "").includes("échec consécutif")
+              ).length;
+              const streak = previous + 2; // +1 pour l'issue initiale, +1 pour cet échec
+              const since = new Date(sameTitle.created_at).toISOString().slice(0, 10);
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: sameTitle.number,
-                body: `Nouvel échec : ${run.html_url}`,
+                body: [
+                  `**${streak}e échec consécutif** de \`${run.name}\` (premier échec le ${since}).`,
+                  ``,
+                  `- Conclusion : ${run.conclusion}`,
+                  `- Run : ${run.html_url}`,
+                  ``,
+                  streak >= 3
+                    ? `⚠️ Cette panne dure depuis ${since}. Ce n'est plus un incident passager : il faut traiter la cause (clé API morte, modèle retiré, quota).`
+                    : `Vérifier la cause (quota API, panne, modèle déprécié).`,
+                ].join("\n"),
+              });
+              // Le compteur dans le titre force GitHub à ré-notifier avec un
+              // objet d'email qui change — impossible à confondre avec du bruit.
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: sameTitle.number,
+                title: `${title} — ${streak} échecs depuis le ${since}`,
               });
             } else {
               await github.rest.issues.create({

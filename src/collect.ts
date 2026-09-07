@@ -240,16 +240,23 @@ async function main() {
     if (b < batches.length - 1) await new Promise((r) => setTimeout(r, 1500));
   }
 
-  // 5. Filtrage par score minimum — sauf si tous les LLM ont échoué : on garde tout
-  // pour que le digest puisse au moins envoyer les articles bruts en mode dégradé.
-  const anyScored = scored.some((a) => typeof a.score === "number");
-  const kept = anyScored
-    ? scored.filter((a) => (a.score ?? 0) >= sourcesConfig.minScore)
-    : scored;
-  if (anyScored) {
-    console.log(`${kept.length}/${scored.length} articles retenus (score ≥ ${sourcesConfig.minScore})`);
-  } else {
+  // 5. Filtrage par score minimum. Un article SANS score n'a pas été jugé non
+  // pertinent : son batch a échoué. On le garde — l'absence de note n'est pas
+  // une mauvaise note. Auparavant `a.score ?? 0` les écrasait à zéro, et une
+  // panne LLM partielle jetait silencieusement des dizaines d'articles.
+  const unscoredCount = scored.filter((a) => typeof a.score !== "number").length;
+  const kept = scored.filter(
+    (a) => typeof a.score !== "number" || a.score >= sourcesConfig.minScore
+  );
+  const allUnscored = unscoredCount === scored.length;
+
+  if (allUnscored) {
     console.warn(`Scoring LLM totalement indisponible — sauvegarde des ${scored.length} articles bruts pour fallback digest`);
+  } else {
+    console.log(`${kept.length}/${scored.length} articles retenus (score ≥ ${sourcesConfig.minScore})`);
+    if (unscoredCount > 0) {
+      console.warn(`${unscoredCount} article(s) non noté(s) (batch de scoring en échec) — conservés sans score plutôt que jetés`);
+    }
   }
 
   // 6. Sauvegarde
@@ -258,7 +265,7 @@ async function main() {
   await fs.mkdir(outDir, { recursive: true });
   await fs.writeFile(
     path.join(outDir, `${today}.json`),
-    JSON.stringify({ date: today, articles: kept, unscored: !anyScored }, null, 2),
+    JSON.stringify({ date: today, articles: kept, unscored: allUnscored }, null, 2),
     "utf-8"
   );
   console.log(`Sauvegardé : data/articles/${today}.json`);

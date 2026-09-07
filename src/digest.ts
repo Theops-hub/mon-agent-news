@@ -96,14 +96,22 @@ function buildFallbackDigest(articles: Article[], startDate: string, endDate: st
   return `${header}\n\n${sections.join("\n\n")}`;
 }
 
-async function generateDigest(articles: Article[]): Promise<{ markdown: string; degraded: boolean }> {
+// Renvoie le digest ET la liste des articles réellement inclus dedans : seuls
+// ceux-là doivent être marqués comme envoyés (voir main()).
+async function generateDigest(
+  articles: Article[]
+): Promise<{ markdown: string; degraded: boolean; included: Article[] }> {
   const today = new Date().toISOString().slice(0, 10);
   const startDate = new Date(Date.now() - DIGEST_WINDOW_DAYS * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
 
   if (articles.length === 0) {
-    return { markdown: "# Digest\n\nAucun article notable sur la période.", degraded: false };
+    return {
+      markdown: "# Digest\n\nAucun article notable sur la période.",
+      degraded: false,
+      included: [],
+    };
   }
 
   // Tri par score décroissant, top N max pour rester dans les limites de tokens
@@ -167,11 +175,15 @@ Date d'aujourd'hui : ${today}.`;
   try {
     const { text, provider } = await callLLM({ prompt, temperature: 0.2 });
     console.log(`Digest généré via ${provider}`);
-    return { markdown: text, degraded: false };
+    return { markdown: text, degraded: false, included: top };
   } catch (err) {
     console.error("Tous les LLM ont échoué pour le digest :", (err as Error).message);
     console.warn("Passage en mode dégradé : envoi des articles bruts.");
-    return { markdown: buildFallbackDigest(top, startDate, today), degraded: true };
+    return {
+      markdown: buildFallbackDigest(top, startDate, today),
+      degraded: true,
+      included: top,
+    };
   }
 }
 
@@ -202,7 +214,13 @@ async function main() {
     return;
   }
 
-  const { markdown: digest, degraded } = await generateDigest(articles);
+  const { markdown: digest, degraded, included } = await generateDigest(articles);
+  const leftOver = articles.length - included.length;
+  if (leftOver > 0) {
+    console.log(
+      `${leftOver} article(s) hors du top ${DIGEST_TOP_N} : non envoyés, donc laissés hors du tracker pour rester éligibles demain`
+    );
+  }
 
   // Sauvegarde Markdown
   const today = new Date().toISOString().slice(0, 10);
@@ -223,9 +241,13 @@ async function main() {
   });
   console.log(`Email envoyé${degraded ? " (mode dégradé)" : ""}:`, emailId);
 
-  // Marquer les articles comme envoyés UNIQUEMENT après envoi email réussi,
-  // pour pouvoir réessayer demain si l'email a échoué.
-  for (const a of articles) {
+  // Marquer comme envoyés UNIQUEMENT les articles réellement présents dans le
+  // digest, et seulement après un envoi email réussi (pour pouvoir réessayer
+  // demain si l'email a échoué). Marquer TOUS les candidats brûlait chaque jour
+  // les articles au-delà du top 30 sans qu'ils aient jamais été lus — invisible
+  // en régime normal (le filtre de score laisse ~25 articles), mais massif en
+  // mode dégradé, où les 165 articles bruts du jour passaient à la trappe.
+  for (const a of included) {
     if (a.link) sentTracker[a.link] = today;
   }
   await saveSentTracker(sentTracker);

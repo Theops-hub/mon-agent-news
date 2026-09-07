@@ -1,5 +1,15 @@
 // Fallback chain : Mistral → Groq → Gemini
 // L'objectif est qu'au moins un provider réponde, même si les autres sont down/quota.
+//
+// Deux niveaux de résilience, appris de la panne du 4 au 7 septembre 2026 où la
+// chaîne entière est tombée et le digest est passé en mode dégradé 4 jours :
+//  1. Retry avec backoff exponentiel À L'INTÉRIEUR d'un provider, pour les
+//     erreurs transitoires (429 rate limit, 503 surcharge, timeout réseau).
+//     Sans ça, un simple pic de charge chez Mistral suffisait à faire tomber la
+//     chaîne — alors qu'une seconde tentative aurait suffi.
+//  2. Bascule vers le provider suivant si le retry n'a rien donné — ou
+//     immédiatement, sans perdre de temps, si l'erreur est définitive
+//     (clé révoquée, modèle retiré du catalogue).
 
 type LLMOptions = {
   prompt: string;
@@ -8,21 +18,73 @@ type LLMOptions = {
   timeoutMs?: number;
 };
 
+export type ProviderName = "mistral" | "groq" | "gemini";
+
 export type LLMResult = {
   text: string;
-  provider: "mistral" | "groq" | "gemini";
+  provider: ProviderName;
 };
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+// Retry : 3 tentatives par provider, backoff 2s → 4s, plafonné à 20s. Le plafond
+// compte : la collecte enchaîne ~28 batches dans un workflow limité à 20 min.
+const MAX_ATTEMPTS = 3;
+const BACKOFF_BASE_MS = 2_000;
+const BACKOFF_CAP_MS = 20_000;
 
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// Modèles : le plus gros gratuit disponible chez chaque provider
+// Modèles : le plus gros gratuit disponible chez chaque provider.
+// ⚠️ Ces identifiants périment. Le healthcheck hebdomadaire (llm-healthcheck.yml)
+// est là pour signaler un modèle retiré — gemini-2.0-flash l'a été en août 2026
+// et l'agent a mis 6 semaines à s'en apercevoir.
 const MISTRAL_MODEL = "mistral-small-latest";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
+
+// Erreur HTTP d'un provider, avec le statut conservé : c'est lui qui décide si
+// on retente (transitoire) ou si on bascule tout de suite (définitif).
+export class LLMHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs?: number
+  ) {
+    super(message);
+    this.name = "LLMHttpError";
+  }
+}
+
+// Erreur définitive : réessayer ne changera rien. Requête malformée (400),
+// clé invalide ou révoquée (401/403), modèle absent du catalogue (404).
+// Tout le reste — 429, 5xx, coupure réseau, timeout — est traité comme transitoire.
+function isPermanent(err: unknown): boolean {
+  return err instanceof LLMHttpError && [400, 401, 403, 404].includes(err.status);
+}
+
+// En-tête Retry-After : soit un nombre de secondes, soit une date HTTP.
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = new Date(header).getTime();
+  if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  return undefined;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Le serveur sait mieux que nous quand revenir : Retry-After prime sur le
+// backoff calculé, mais reste plafonné pour ne pas manger le budget du workflow.
+// Le jitter évite que tous les batches se resynchronisent sur la même fenêtre de quota.
+function backoffMs(attempt: number, retryAfterMs?: number): number {
+  const exponential = Math.min(BACKOFF_BASE_MS * 2 ** (attempt - 1), BACKOFF_CAP_MS);
+  const wait = retryAfterMs === undefined ? exponential : Math.min(retryAfterMs, BACKOFF_CAP_MS);
+  return wait + Math.floor(Math.random() * 500);
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -36,6 +98,16 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function assertOk(res: Response): Promise<void> {
+  if (res.ok) return;
+  const errText = await res.text().catch(() => "");
+  throw new LLMHttpError(
+    `HTTP ${res.status}: ${errText.slice(0, 300)}`,
+    res.status,
+    parseRetryAfter(res.headers.get("retry-after"))
+  );
 }
 
 // Mistral & Groq exposent une API OpenAI-compatible. On utilise fetch direct
@@ -66,10 +138,7 @@ async function callOpenAICompatible(
     opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   );
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
-  }
+  await assertOk(res);
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
@@ -119,10 +188,7 @@ async function callGemini(opts: LLMOptions): Promise<string> {
     opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   );
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
-  }
+  await assertOk(res);
   const data = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
@@ -132,25 +198,71 @@ async function callGemini(opts: LLMOptions): Promise<string> {
   return text;
 }
 
-type Provider = LLMResult["provider"];
-// Exporté pour le healthcheck hebdomadaire (src/llm-health.ts), qui teste
-// chaque provider individuellement pour détecter clés mortes et modèles dépréciés.
-export const PROVIDERS: {
-  name: Provider;
+export type ProviderDef = {
+  name: ProviderName;
+  model: string;
   call: (opts: LLMOptions) => Promise<string>;
   configured: boolean;
-}[] = [
-  { name: "mistral", call: callMistral, configured: Boolean(MISTRAL_API_KEY) },
-  { name: "groq", call: callGroq, configured: Boolean(GROQ_API_KEY) },
-  { name: "gemini", call: callGemini, configured: Boolean(GEMINI_API_KEY) },
+};
+
+// Exporté pour le healthcheck hebdomadaire (src/llm-health.ts), qui teste
+// chaque provider individuellement pour détecter clés mortes et modèles dépréciés.
+export const PROVIDERS: ProviderDef[] = [
+  { name: "mistral", model: MISTRAL_MODEL, call: callMistral, configured: Boolean(MISTRAL_API_KEY) },
+  { name: "groq", model: GROQ_MODEL, call: callGroq, configured: Boolean(GROQ_API_KEY) },
+  { name: "gemini", model: GEMINI_MODEL, call: callGemini, configured: Boolean(GEMINI_API_KEY) },
 ];
+
+// Un provider, avec retry sur les erreurs transitoires. Exporté pour que le
+// healthcheck teste dans les mêmes conditions que la production : un 503
+// passager ne doit pas être signalé comme une panne de provider.
+export async function callProvider(
+  provider: ProviderDef,
+  opts: LLMOptions,
+  maxAttempts = MAX_ATTEMPTS
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await provider.call(opts);
+    } catch (err) {
+      lastError = err;
+      if (isPermanent(err)) throw err;
+      if (attempt === maxAttempts) break;
+      const wait = backoffMs(attempt, (err as LLMHttpError).retryAfterMs);
+      console.warn(
+        `${provider.name} : échec transitoire (${(err as Error).message.slice(0, 120)}) — ` +
+          `nouvelle tentative dans ${Math.round(wait / 1000)}s [${attempt}/${maxAttempts - 1}]`
+      );
+      await sleep(wait);
+    }
+  }
+  throw lastError;
+}
+
+// Providers écartés pour la durée du process après une erreur définitive.
+// La collecte enchaîne ~28 batches : sans ça, chaque batch refaisait un
+// aller-retour vers un modèle retiré avant de basculer. Réinitialisé à chaque run.
+const disabled = new Map<ProviderName, string>();
 
 // Essaie chaque provider dans l'ordre. Le premier qui répond gagne.
 export async function callLLM(opts: LLMOptions): Promise<LLMResult> {
   const errors: string[] = [];
-  for (const { name, call } of PROVIDERS) {
+  for (const provider of PROVIDERS) {
+    const { name } = provider;
+
+    if (!provider.configured) {
+      errors.push(`${name}: clé API absente`);
+      continue;
+    }
+    const reason = disabled.get(name);
+    if (reason) {
+      errors.push(`${name}: écarté pour ce run (${reason})`);
+      continue;
+    }
+
     try {
-      const text = await call(opts);
+      const text = await callProvider(provider, opts);
       if (errors.length > 0) {
         console.warn(`LLM fallback réussi avec ${name} après échecs : ${errors.join(" | ")}`);
       }
@@ -158,6 +270,14 @@ export async function callLLM(opts: LLMOptions): Promise<LLMResult> {
     } catch (err) {
       const msg = `${name}: ${(err as Error).message}`;
       console.warn(`LLM ${name} a échoué — ${msg}`);
+      if (isPermanent(err)) {
+        const status = (err as LLMHttpError).status;
+        disabled.set(name, `HTTP ${status}`);
+        console.error(
+          `LLM ${name} écarté pour la suite du run (erreur définitive HTTP ${status}) — ` +
+            `vérifier la clé API ou le nom du modèle « ${provider.model} » dans src/llm.ts.`
+        );
+      }
       errors.push(msg);
     }
   }

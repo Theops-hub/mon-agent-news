@@ -8,23 +8,54 @@
 // moins de 2 providers configurés (chaîne de fallback trop fragile).
 // L'échec du workflow déclenche notify-failure → issue GitHub → email.
 
-import { PROVIDERS } from "./llm.js";
+import { PROVIDERS, callProvider, LLMHttpError } from "./llm.js";
+
+// Comme en production, un 503 passager ne doit pas être signalé comme une panne :
+// 2 tentatives suffisent à distinguer le hoquet de la panne réelle.
+const HEALTH_ATTEMPTS = 2;
+
+// Traduit le statut HTTP en action concrète : sans ça, l'alerte hebdomadaire
+// disait « clé révoquée, quota épuisé ou modèle déprécié ? » sans trancher, et
+// le 404 de gemini-2.0-flash est resté 6 semaines sans être traité.
+function diagnose(name: string, model: string, err: unknown): string {
+  if (!(err instanceof LLMHttpError)) {
+    return `${name} : injoignable (${(err as Error).message}) — panne réseau ou API down ?`;
+  }
+  switch (err.status) {
+    case 404:
+      return `${name} : le modèle « ${model} » n'existe plus côté provider — ACTION : mettre à jour la constante dans src/llm.ts.`;
+    case 401:
+    case 403:
+      return `${name} : clé API refusée (HTTP ${err.status}) — ACTION : régénérer le secret ${name.toUpperCase()}_API_KEY.`;
+    case 429:
+      return `${name} : quota ou rate limit épuisé (HTTP 429) — ACTION : vérifier le plan, ou accepter que ce provider ne serve que de secours.`;
+    default:
+      return `${name} : HTTP ${err.status} persistant après ${HEALTH_ATTEMPTS} tentatives — ${err.message.slice(0, 200)}`;
+  }
+}
 
 async function main() {
+  const diagnostics: string[] = [];
   const failures: string[] = [];
   const missing: string[] = [];
 
-  for (const { name, call, configured } of PROVIDERS) {
+  for (const provider of PROVIDERS) {
+    const { name, model, configured } = provider;
     if (!configured) {
       console.warn(`${name}: clé API absente — provider hors de la chaîne de fallback`);
       missing.push(name);
       continue;
     }
     try {
-      await call({ prompt: "Réponds uniquement par le mot : OK", timeoutMs: 30_000 });
-      console.log(`${name}: OK`);
+      await callProvider(
+        provider,
+        { prompt: "Réponds uniquement par le mot : OK", timeoutMs: 30_000 },
+        HEALTH_ATTEMPTS
+      );
+      console.log(`${name}: OK (modèle ${model})`);
     } catch (err) {
       console.error(`${name}: ÉCHEC — ${(err as Error).message}`);
+      diagnostics.push(diagnose(name, model, err));
       failures.push(name);
     }
   }
@@ -33,14 +64,15 @@ async function main() {
   console.log(`Bilan : ${healthy}/${PROVIDERS.length} provider(s) opérationnel(s)`);
 
   if (failures.length > 0) {
-    console.error(
-      `Provider(s) configuré(s) mais en panne : ${failures.join(", ")} — clé révoquée, quota épuisé ou modèle déprécié ?`
-    );
+    console.error(`\nProvider(s) configuré(s) mais en panne : ${failures.join(", ")}`);
+    for (const d of diagnostics) console.error(`  → ${d}`);
     process.exit(1);
   }
   if (healthy < 2) {
     console.error(
-      `Moins de 2 providers opérationnels (absents : ${missing.join(", ") || "aucun"}) — la chaîne de fallback est trop fragile, ajouter une clé.`
+      `\nMoins de 2 providers opérationnels (absents : ${missing.join(", ") || "aucun"}) — ` +
+        `la chaîne de fallback est trop fragile.\n` +
+        `  → ACTION : ajouter un secret ${missing.map((m) => `${m.toUpperCase()}_API_KEY`).join(" ou ")} dans les settings du repo.`
     );
     process.exit(1);
   }
