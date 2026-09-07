@@ -71,16 +71,6 @@
       "category": "business"
     },
     {
-      "name": "r/SaaS",
-      "url": "https://www.reddit.com/r/SaaS/.rss",
-      "category": "business"
-    },
-    {
-      "name": "r/microsaas",
-      "url": "https://www.reddit.com/r/microsaas/.rss",
-      "category": "business"
-    },
-    {
       "name": "Product Hunt",
       "url": "https://www.producthunt.com/feed",
       "category": "business"

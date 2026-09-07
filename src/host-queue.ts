@@ -9,10 +9,13 @@
 // mais on sérialise à l'intérieur d'un domaine, avec une pause entre deux
 // requêtes vers le même hôte.
 
-// 5 s et non 1,5 s : Reddit limite durement les IP de datacenter, et les
-// runners GitHub en sont. À 1,5 s, deux flux Reddit sur cinq passaient encore
-// en 429. La collecte tourne dans un workflow de 20 min pour ~6 min de travail,
-// la marge est là.
+// 5 s : marge confortable pour les hôtes qui servent plusieurs flux (hnrss.org
+// en sert trois). La collecte a 20 min de budget pour ~6 min de travail.
+//
+// À noter, appris à la dure : ce délai ne sauve PAS Reddit. Depuis les IP des
+// runners GitHub, Reddit ne laisse passer qu'un seul flux par run et renvoie
+// 429 aux suivants quel que soit l'espacement — c'est un quota par IP, pas un
+// débit. D'où une seule source Reddit dans la config (r/LocalLLaMA).
 const SAME_HOST_DELAY_MS = 5000;
 
 function hostOf(url: string): string {
