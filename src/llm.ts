@@ -245,41 +245,83 @@ export async function callProvider(
 // aller-retour vers un modèle retiré avant de basculer. Réinitialisé à chaque run.
 const disabled = new Map<ProviderName, string>();
 
+// Provider en pause après avoir épuisé son budget de retry sur une erreur
+// transitoire. Un quota Mistral épuisé ne se rétablit pas dans la seconde :
+// sans cette pause, chaque batch repayait ~6 s de backoff pour un provider
+// qu'on sait déjà indisponible — soit ~12 min de pure attente sur un
+// rattrapage de 124 batches.
+const RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+const cooldownUntil = new Map<ProviderName, number>();
+
 // Essaie chaque provider dans l'ordre. Le premier qui répond gagne.
 export async function callLLM(opts: LLMOptions): Promise<LLMResult> {
   const errors: string[] = [];
-  for (const provider of PROVIDERS) {
-    const { name } = provider;
+  let skippedByCooldown = 0;
 
-    if (!provider.configured) {
-      errors.push(`${name}: clé API absente`);
-      continue;
-    }
-    const reason = disabled.get(name);
-    if (reason) {
-      errors.push(`${name}: écarté pour ce run (${reason})`);
-      continue;
-    }
+  const tryChain = async (respectCooldown: boolean): Promise<LLMResult | null> => {
+    for (const provider of PROVIDERS) {
+      const { name } = provider;
 
-    try {
-      const text = await callProvider(provider, opts);
-      if (errors.length > 0) {
-        console.warn(`LLM fallback réussi avec ${name} après échecs : ${errors.join(" | ")}`);
+      if (!provider.configured) {
+        if (respectCooldown) errors.push(`${name}: clé API absente`);
+        continue;
       }
-      return { text, provider: name };
-    } catch (err) {
-      const msg = `${name}: ${(err as Error).message}`;
-      console.warn(`LLM ${name} a échoué — ${msg}`);
-      if (isPermanent(err)) {
-        const status = (err as LLMHttpError).status;
-        disabled.set(name, `HTTP ${status}`);
-        console.error(
-          `LLM ${name} écarté pour la suite du run (erreur définitive HTTP ${status}) — ` +
-            `vérifier la clé API ou le nom du modèle « ${provider.model} » dans src/llm.ts.`
+      const reason = disabled.get(name);
+      if (reason) {
+        if (respectCooldown) errors.push(`${name}: écarté pour ce run (${reason})`);
+        continue;
+      }
+      const pausedUntil = cooldownUntil.get(name) ?? 0;
+      if (respectCooldown && Date.now() < pausedUntil) {
+        errors.push(
+          `${name}: en pause encore ${Math.ceil((pausedUntil - Date.now()) / 1000)}s (échec récent)`
         );
+        skippedByCooldown++;
+        continue;
       }
-      errors.push(msg);
+
+      try {
+        const text = await callProvider(provider, opts);
+        cooldownUntil.delete(name); // il répond de nouveau
+        if (errors.length > 0) {
+          console.warn(`LLM fallback réussi avec ${name} après échecs : ${errors.join(" | ")}`);
+        }
+        return { text, provider: name };
+      } catch (err) {
+        const msg = `${name}: ${(err as Error).message}`;
+        console.warn(`LLM ${name} a échoué — ${msg}`);
+        if (isPermanent(err)) {
+          const status = (err as LLMHttpError).status;
+          disabled.set(name, `HTTP ${status}`);
+          console.error(
+            `LLM ${name} écarté pour la suite du run (erreur définitive HTTP ${status}) — ` +
+              `vérifier la clé API ou le nom du modèle « ${provider.model} » dans src/llm.ts.`
+          );
+        } else {
+          cooldownUntil.set(name, Date.now() + RATE_LIMIT_COOLDOWN_MS);
+          console.warn(
+            `LLM ${name} mis en pause ${RATE_LIMIT_COOLDOWN_MS / 60_000} min après épuisement des tentatives.`
+          );
+        }
+        errors.push(msg);
+      }
     }
+    return null;
+  };
+
+  const result = await tryChain(true);
+  if (result) return result;
+
+  // La chaîne a échoué alors que des providers n'ont même pas été essayés, au
+  // seul motif qu'ils étaient en pause. Ne jamais abandonner sans les avoir
+  // tentés : la pause est une optimisation, pas un verdict.
+  if (skippedByCooldown > 0) {
+    console.warn(
+      `Chaîne en échec avec ${skippedByCooldown} provider(s) en pause — nouvelle passe sans tenir compte des pauses.`
+    );
+    const retried = await tryChain(false);
+    if (retried) return retried;
   }
+
   throw new Error(`Tous les providers LLM ont échoué : ${errors.join(" | ")}`);
 }
