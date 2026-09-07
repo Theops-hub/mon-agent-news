@@ -1,0 +1,46 @@
+name: Send Digest
+
+# Envoie par mail des digests déjà présents dans data/digests/, sans appeler
+# de LLM. Utile quand la chaîne LLM est indisponible et que les digests ont été
+# rédigés autrement : il ne reste que la livraison.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: "Jours à envoyer, séparés par des espaces (ex. 2026-09-04 2026-09-05)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Send
+        env:
+          # Passé par l'environnement : interpoler ${{ inputs.dates }} dans le
+          # `run:` serait une injection shell.
+          DATES: ${{ inputs.dates }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        # Non quoté volontairement : les dates doivent devenir des arguments
+        # séparés. send-digest.ts ne retient que ce qui matche YYYY-MM-DD.
+        run: npm run send-digest -- $DATES

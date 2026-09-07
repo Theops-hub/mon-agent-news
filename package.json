@@ -8,6 +8,7 @@
     "digest": "tsx src/digest.ts",
     "monthly": "tsx src/monthly.ts",
     "catchup": "tsx src/catchup.ts",
+    "send-digest": "tsx src/send-digest.ts",
     "llm-health": "tsx src/llm-health.ts",
     "typecheck": "tsc --noEmit"
   },
