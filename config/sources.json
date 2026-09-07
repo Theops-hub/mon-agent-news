@@ -1,34 +1,122 @@
 {
   "sources": [
-    { "name": "Hacker News (front page)", "url": "https://hnrss.org/frontpage", "category": "tech" },
-    { "name": "Hacker News (Show HN)", "url": "https://hnrss.org/show", "category": "tech" },
-    { "name": "TechCrunch", "url": "https://techcrunch.com/feed/", "category": "tech" },
-    { "name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "category": "tech" },
-    { "name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "category": "tech" },
-    { "name": "MIT Technology Review", "url": "https://www.technologyreview.com/feed/", "category": "tech" },
-    { "name": "OpenAI Blog", "url": "https://openai.com/blog/rss.xml", "category": "ia" },
-    { "name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "category": "ia" },
-    { "name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "category": "ia" },
-    { "name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "category": "ia" },
-    { "name": "Sebastian Raschka — Magazine", "url": "https://magazine.sebastianraschka.com/feed", "category": "ia" },
-    { "name": "Latent Space", "url": "https://www.latent.space/feed", "category": "ia" },
-    { "name": "r/LocalLLaMA", "url": "https://www.reddit.com/r/LocalLLaMA/.rss", "category": "ia" },
-    { "name": "Le Monde — International", "url": "https://www.lemonde.fr/international/rss_full.xml", "category": "geopolitique" },
-    { "name": "France Info — Monde", "url": "https://www.francetvinfo.fr/monde.rss", "category": "geopolitique" },
-    { "name": "BBC — World", "url": "http://feeds.bbci.co.uk/news/world/rss.xml", "category": "geopolitique" },
-    { "name": "Al Jazeera — World", "url": "https://www.aljazeera.com/xml/rss/all.xml", "category": "geopolitique" },
-    { "name": "DW — World", "url": "https://rss.dw.com/rdf/rss-en-world", "category": "geopolitique" }
+    {
+      "name": "Hacker News (front page)",
+      "url": "https://hnrss.org/frontpage",
+      "category": "tech"
+    },
+    {
+      "name": "Hacker News (Show HN)",
+      "url": "https://hnrss.org/show",
+      "category": "tech"
+    },
+    {
+      "name": "TechCrunch",
+      "url": "https://techcrunch.com/feed/",
+      "category": "tech"
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "category": "tech"
+    },
+    {
+      "name": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/index",
+      "category": "tech"
+    },
+    {
+      "name": "MIT Technology Review",
+      "url": "https://www.technologyreview.com/feed/",
+      "category": "tech"
+    },
+    {
+      "name": "OpenAI Blog",
+      "url": "https://openai.com/blog/rss.xml",
+      "category": "ia"
+    },
+    {
+      "name": "Google DeepMind",
+      "url": "https://deepmind.google/blog/rss.xml",
+      "category": "ia"
+    },
+    {
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog/feed.xml",
+      "category": "ia"
+    },
+    {
+      "name": "Simon Willison",
+      "url": "https://simonwillison.net/atom/everything/",
+      "category": "ia"
+    },
+    {
+      "name": "Sebastian Raschka — Magazine",
+      "url": "https://magazine.sebastianraschka.com/feed",
+      "category": "ia"
+    },
+    {
+      "name": "Latent Space",
+      "url": "https://www.latent.space/feed",
+      "category": "ia"
+    },
+    {
+      "name": "r/LocalLLaMA",
+      "url": "https://www.reddit.com/r/LocalLLaMA/.rss",
+      "category": "ia"
+    },
+    {
+      "name": "Hacker News (Ask HN)",
+      "url": "https://hnrss.org/ask",
+      "category": "business"
+    },
+    {
+      "name": "r/SaaS",
+      "url": "https://www.reddit.com/r/SaaS/.rss",
+      "category": "business"
+    },
+    {
+      "name": "r/microsaas",
+      "url": "https://www.reddit.com/r/microsaas/.rss",
+      "category": "business"
+    },
+    {
+      "name": "r/SideProject",
+      "url": "https://www.reddit.com/r/SideProject/.rss",
+      "category": "business"
+    },
+    {
+      "name": "r/EntrepreneurRideAlong",
+      "url": "https://www.reddit.com/r/EntrepreneurRideAlong/.rss",
+      "category": "business"
+    },
+    {
+      "name": "Indie Hackers",
+      "url": "https://www.indiehackers.com/feed.xml",
+      "category": "business"
+    },
+    {
+      "name": "Product Hunt",
+      "url": "https://www.producthunt.com/feed",
+      "category": "business"
+    },
+    {
+      "name": "a16z",
+      "url": "https://a16z.com/feed/",
+      "category": "business"
+    }
   ],
   "interests": [
     "PRIORITAIRE — Outils IA pour développeurs : agents de codage (Claude Code, Cursor, Codex...), vibecoding, IDE et workflows de dev assisté par IA, MCP, tout ce qui aide à construire des SaaS / apps web / sites web plus vite",
+    "PRIORITAIRE — Opportunités de marché à saisir avec l'IA, selon DEUX signaux précis : (1) CAPACITÉ NOUVELLE — un modèle, une API, un outil ou une baisse de prix qui rend faisable et vendable un service qui ne l'était pas la semaine dernière ; (2) TRACTION OBSERVABLE — un produit, un indie hacker ou une startup qui montre des revenus, une croissance ou une levée sur un créneau qu'un développeur solo peut répliquer ou décliner. Je veux pouvoir lancer une activité en ligne vite quand la fenêtre s'ouvre.",
     "PRIORITAIRE — LLM locaux et modèles open-weight : nouveaux modèles exécutables en local (Ollama, llama.cpp, LM Studio...), quantization, matériel grand public pour l'inférence — je veux être alerté dès qu'une solution locale crédible sort",
     "PRIORITAIRE — Avancées IA et LLMs : nouveaux modèles, papers majeurs, breakthroughs avec applications concrètes",
     "PRIORITAIRE — Outils et plateformes émergents adoptables tôt (early-access, betas, open source nouveau, Show HN)",
-    "PRIORITAIRE — Géopolitique mondiale : conflits, élections, relations internationales, crises majeures",
     "Signaux d'adoption en entreprise : produits IA qui prennent (revenus, déploiements, retours d'expérience)",
     "Tendances tech majeures et lancements produits",
-    "Régulation tech et IA (UE, US, autres) — surtout si impact direct sur l'adoption"
+    "Régulation tech et IA (UE, US, autres) — surtout si impact direct sur l'adoption ou sur l'ouverture/fermeture d'un créneau",
+    "AUCUN INTÉRÊT pour l'actualité géopolitique, les conflits, les élections et les faits divers : ne jamais les remonter."
   ],
-  "profile": "Développeur solo qui fait du vibecoding intensif : il construit des SaaS, des applications web et des sites web avec des agents de codage IA. Abonné Claude Code Max (Anthropic) — tout ce qui améliore Claude Code ou s'y intègre (MCP, skills, workflows) l'intéresse directement. Il suit de près les LLM locaux / open-weight (Ollama, llama.cpp, LM Studio) et veut savoir immédiatement si une solution locale devient assez bonne pour compléter ou remplacer une partie de son usage cloud.",
+  "profile": "Développeur solo ET entrepreneur : il construit des SaaS, des applications web et des sites web avec des agents de codage IA (vibecoding intensif), et cherche activement des créneaux à exploiter pour lancer une activité en ligne rapidement quand une opportunité émerge. Abonné Claude Code Max (Anthropic) — tout ce qui améliore Claude Code ou s'y intègre (MCP, skills, workflows) l'intéresse directement. Il suit de près les LLM locaux / open-weight (Ollama, llama.cpp, LM Studio) et veut savoir immédiatement si une solution locale devient assez bonne pour compléter ou remplacer une partie de son usage cloud. Il ne veut PAS d'actualité géopolitique.",
   "minScore": 7
 }

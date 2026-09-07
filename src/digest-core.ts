@@ -112,7 +112,7 @@ function buildFallbackDigest(articles: Article[], startDate: string, endDate: st
   const categoryEmoji: Record<string, string> = {
     ia: "🚀 IA",
     tech: "🛠️ Tech",
-    geopolitique: "🌍 Géopolitique",
+    business: "💰 Marché & opportunités",
   };
 
   const sections: string[] = [];
@@ -186,7 +186,7 @@ RÈGLES STRICTES — TU DOIS LES RESPECTER :
 
 5bis. **Mise en forme des liens** : le texte d'un lien Markdown doit être court et lisible — le nom de la source ou de l'outil (ex. \`[TechCrunch](url)\`, \`[Bonsai 27B](url)\`), JAMAIS l'URL brute ni un chemin type "site.com/2026/07/14/titre-complet". Mets en **gras** les noms d'outils, de modèles et d'entreprises à leur première mention dans chaque paragraphe.
 
-6. **Articles 10/10 obligatoires** : tout article noté 10/10 dans la liste ci-dessus DOIT être mentionné dans le digest (en intro ou dans une section thématique). Aucune omission tolérée pour les articles 10/10.
+6. **Articles 10/10 obligatoires** : tout article noté 10/10 dans la liste ci-dessus DOIT être mentionné dans le digest (en intro ou dans une section thématique). Aucune omission tolérée pour les articles 10/10 — sauf s'il s'agit d'actualité géopolitique, auquel cas il est ignoré comme le reste.
 
 ============================================
 STRUCTURE À PRODUIRE :
@@ -202,8 +202,17 @@ Pour chaque sujet IA pertinent (nouveaux modèles, papers, outils testables, sig
 ## 🛠️ Tech & industrie (≈ 25%)
 Mouvements de marché, levées, deals, lancements produits, réglementation tech. Paragraphes courts, factuels.
 
-## 🌍 Contexte mondial (≈ 25%)
-Géopolitique, conflits, élections, crises majeures. **Couvre tous les sujets ≥ 8/10 sans en omettre.** Une sous-section par grand théâtre (Moyen-Orient, Europe/Ukraine, USA, Asie...). Ne mélange pas les théâtres.
+## 💰 Idées marché à saisir (≈ 25%) — SECTION OPTIONNELLE
+Le lecteur est développeur solo ET entrepreneur : il veut lancer une activité en ligne vite quand une fenêtre s'ouvre. N'inclus ici QUE des sujets relevant d'un de ces deux signaux, et dis lequel :
+
+1. **Capacité nouvelle** — un modèle, une API, un outil ou une baisse de prix qui rend faisable et vendable un service qui ne l'était pas avant. Écris ce que ça permet de VENDRE, pas seulement ce que ça permet de faire.
+2. **Traction observable** — un produit, un indie hacker ou une startup qui montre des revenus, une croissance ou une levée sur un créneau réplicable par une personne seule. Donne les chiffres cités dans l'article, jamais d'estimation de ta part.
+
+Pour chaque piste, en 3 à 5 phrases : ce qui vient de changer, ce que ça rend vendable, qui paierait, et le premier pas concret. Termine par le ou les liens Markdown.
+
+**Cette section est OPTIONNELLE et tu dois l'OMETTRE complètement si rien dans les articles ci-dessus ne relève réellement de ces deux signaux.** Un digest plus court vaut mieux qu'une opportunité inventée. N'utilise JAMAIS cette section pour recycler une annonce de modèle déjà traitée plus haut, une levée de fonds d'un géant (non réplicable), ou une tendance vague sans acheteur identifiable. Zéro piste solide = zéro ligne, pas de section.
+
+**INTERDIT** : aucune actualité géopolitique, conflit, élection ou fait divers dans ce digest, quelle que soit la section. Si de tels articles figurent dans la liste, ignore-les purement et simplement.
 
 ## 🎯 À tester / appliquer (section OPTIONNELLE)
 Inclus cette section UNIQUEMENT si des articles appellent une action que le lecteur (développeur individuel) peut réaliser lui-même : tester un outil ou modèle disponible publiquement, appliquer une mise à jour de sécurité, essayer une API, lire un paper ou une doc technique. De 1 à 3 actions maximum, chacune en 2-3 phrases avec le ou les liens Markdown vers les sources. Les mouvements de marché, la géopolitique et les annonces corporate ne sont PAS actionnables par le lecteur : n'en tire jamais d'action. Si rien n'est réellement actionnable, OMETS complètement la section — pas de remplissage.

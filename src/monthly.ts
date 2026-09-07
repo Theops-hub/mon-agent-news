@@ -33,9 +33,11 @@ function previousMonth(): { key: string; label: string } {
   return { key, label: `${MONTH_NAMES_FR[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
 }
 
-// Ne garde que les sections utiles au bilan outils : la géopolitique et le
-// contexte mondial n'ont rien à faire dans la synthèse mensuelle, et les
-// retirer réduit nettement la taille du prompt (~30 digests concaténés).
+// Retire les sections sans valeur pour le bilan outils, ce qui réduit aussi
+// nettement la taille du prompt (~30 digests concaténés).
+// Les digests ne contiennent plus de géopolitique depuis septembre 2026, mais
+// le filtre reste pour les archives antérieures. La section « idées marché »,
+// elle, est GARDÉE : c'est justement la matière du bilan mensuel.
 function stripWorldSections(md: string): string {
   const kept: string[] = [];
   let skipping = false;
@@ -98,6 +100,9 @@ Les 3 à 6 outils/modèles/services les plus intéressants du mois pour son usag
 
 ## 🖥️ LLM locaux : où on en est
 Ce qui a bougé ce mois-ci côté modèles exécutables en local / open-weight (nouveaux modèles, quantization, matériel). Conclus par une phrase d'avis : est-ce qu'une solution locale devient assez crédible pour son usage, ou pas encore ?
+
+## 💰 Les fenêtres qui se sont ouvertes
+Reprends les idées marché repérées dans les digests du mois et garde celles qui tiennent encore : une capacité devenue exploitable, ou un créneau où quelqu'un montre de la traction. Pour chacune, une ligne sur ce qui a changé et une sur ce qu'un solo peut en tirer. Si rien de sérieux n'est ressorti ce mois-ci, écris-le en une ligne et passe — ne remplis pas.
 
 ## 📈 Tendances de fond
 2-3 tendances qui se dégagent en comparant les digests du mois (pas des événements isolés). Une phrase ou deux par tendance.

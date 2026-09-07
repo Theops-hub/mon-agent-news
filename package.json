@@ -10,6 +10,7 @@
     "catchup": "tsx src/catchup.ts",
     "send-digest": "tsx src/send-digest.ts",
     "llm-health": "tsx src/llm-health.ts",
+    "feed-health": "tsx src/feed-health.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
