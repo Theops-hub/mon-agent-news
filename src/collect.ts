@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
 import { scoreInBatches } from "./digest-core.js";
+import { mapPerHostSerial } from "./host-queue.js";
 import type { Source, Article } from "./types.js";
 
 const USER_AGENT =
@@ -142,9 +143,10 @@ async function pruneOldArticles(dir: string): Promise<void> {
 async function main() {
   console.log(`Collecte du ${new Date().toISOString()}`);
 
-  // 1. Récupération RSS (en parallèle)
+  // 1. Récupération RSS : en parallèle entre domaines, sérialisée à l'intérieur
+  // d'un même domaine (plusieurs flux Reddit d'affilée se font sinon 429).
   const allArticles = (
-    await Promise.all((sourcesConfig.sources as Source[]).map(fetchRecentArticles))
+    await mapPerHostSerial(sourcesConfig.sources as Source[], fetchRecentArticles)
   ).flat();
   console.log(`${allArticles.length} articles récupérés`);
 

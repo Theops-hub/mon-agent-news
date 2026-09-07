@@ -10,16 +10,13 @@
 
 import Parser from "rss-parser";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
+import { mapPerHostSerial } from "./host-queue.js";
 import type { Source } from "./types.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (compatible; mon-agent-news/1.0; +https://github.com/) news-aggregator-bot";
 
 const parser = new Parser({ timeout: 20000, headers: { "User-Agent": USER_AGENT } });
-
-// Les flux sont testés en parallèle limité : 21 sources séquentielles à 20 s de
-// timeout chacune dépasseraient le budget du workflow dans le pire cas.
-const CONCURRENCY = 5;
 
 type Result = { source: Source; ok: boolean; detail: string };
 
@@ -46,17 +43,10 @@ async function main() {
   const sources = sourcesConfig.sources as Source[];
   console.log(`Vérification de ${sources.length} flux...\n`);
 
-  const results: Result[] = [];
-  let cursor = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, sources.length) }, async () => {
-      while (true) {
-        const i = cursor++;
-        if (i >= sources.length) return;
-        results[i] = await check(sources[i]);
-      }
-    })
-  );
+  // Même politique que la collecte : sérialisé par domaine. Un check qui
+  // frapperait Reddit en parallèle signalerait des 429 que la production
+  // ne rencontre pas — ou l'inverse.
+  const results = await mapPerHostSerial(sources, check);
 
   for (const r of results) {
     const tag = r.ok ? "OK  " : "KO  ";

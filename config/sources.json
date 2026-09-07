@@ -91,18 +91,8 @@
       "category": "business"
     },
     {
-      "name": "Indie Hackers",
-      "url": "https://www.indiehackers.com/feed.xml",
-      "category": "business"
-    },
-    {
       "name": "Product Hunt",
       "url": "https://www.producthunt.com/feed",
-      "category": "business"
-    },
-    {
-      "name": "a16z",
-      "url": "https://a16z.com/feed/",
       "category": "business"
     }
   ],
