@@ -90,8 +90,8 @@ Tout est dans `config/sources.json` :
 - **`minScore`** : seuil pour qu'un article soit gardé (7 par défaut, monte à 8 si trop de bruit, baisse à 6 si tu ne reçois rien).
 
 Tu peux aussi ajuster dans `src/digest.ts` :
-- `DIGEST_WINDOW_DAYS` (4 par défaut) : combien de jours d'articles le digest couvre.
-- `DIGEST_TOP_N` (50 par défaut) : combien d'articles sont passés à Mistral pour la synthèse.
+- `DIGEST_WINDOW_DAYS` (2 par défaut) : combien de jours d'articles le digest couvre.
+- `DIGEST_TOP_N` (30 par défaut) : combien d'articles sont passés au LLM pour la synthèse. Seuls ces articles-là sont marqués comme envoyés dans `data/sent.json` : ceux qui n'ont pas tenu dans le top restent éligibles au digest du lendemain.
 
 ## Coûts
 
@@ -105,13 +105,16 @@ Tu peux aussi ajuster dans `src/digest.ts` :
 
 L'agent est conçu pour ne jamais te laisser sans nouvelles :
 
-1. **Chaîne de fallback LLM** : Mistral → Groq → Gemini. Si l'un est en panne/quota, l'agent bascule automatiquement.
+1. **Chaîne de fallback LLM** : Mistral → Groq → Gemini. Chaque provider est retenté 3 fois avec backoff exponentiel (2s → 4s, en respectant l'en-tête `Retry-After`) sur les erreurs transitoires — 429 rate limit, 503 surcharge, timeout réseau. Si le retry ne suffit pas, l'agent bascule sur le suivant. Une erreur définitive (clé révoquée, modèle retiré du catalogue) écarte le provider immédiatement et pour tout le reste du run, sans réessayer 28 fois pour rien.
 2. **Mode dégradé** : si TOUS les LLM échouent, le digest est quand même envoyé avec les articles bruts groupés par catégorie (préfixé "⚠️ Digest dégradé").
 3. **Timeouts + sortie explicite** : 60s par appel LLM, 20 min max par workflow, et `process.exit` en fin de script (des handles résiduels ont déjà suspendu un run jusqu'au timeout, perdant les articles du jour).
 4. **Crons de rattrapage** : la collecte et le digest ont chacun un second cron quelques heures plus tard, qui ne fait rien si le premier a réussi (garde sur le fichier du jour / tracker `sent.json`) et prend le relais sinon. Couvre les crons sautés ou très retardés par GitHub.
 5. **Retry d'envoi** : 3 tentatives espacées pour l'email Resend avant de déclarer l'échec.
 6. **Notification d'échec** : si un workflow plante OU est annulé par timeout, ou si le digest constate que rien n'a été collecté depuis 2 jours, une issue GitHub est ouverte → GitHub t'envoie un email natif. Aucun mode de panne silencieux connu.
-7. **Healthcheck LLM hebdomadaire** : chaque lundi, un workflow teste chaque provider individuellement (le fallback masque les pannes au quotidien) et alerte si une clé est morte, un quota épuisé, un modèle déprécié, ou s'il reste moins de 2 providers valides.
+7. **Healthcheck LLM hebdomadaire** : chaque lundi, un workflow teste chaque provider individuellement (le fallback masque les pannes au quotidien) et alerte si une clé est morte, un quota épuisé, un modèle déprécié, ou s'il reste moins de 2 providers valides. L'alerte nomme l'action à faire (mettre à jour le nom du modèle, régénérer tel secret) plutôt que de lister les causes possibles.
+8. **Escalade des pannes qui durent** : une panne récurrente renomme son issue GitHub avec le nombre d'échecs consécutifs et la date du premier (« — 7 échecs depuis le 2026-07-20 »). L'objet de l'email GitHub change donc à chaque fois, au lieu de se noyer dans un fil d'issue déjà lu.
+
+> ⚠️ **Les identifiants de modèles périment.** `gemini-2.0-flash` a été retiré du catalogue Google en août 2026 : Gemini renvoyait 404 à chaque appel. Comme Groq n'avait pas de clé configurée, la chaîne reposait en réalité sur Mistral seul, et le premier rate limit Mistral a fait basculer le digest en mode dégradé pendant 4 jours. Le healthcheck l'avait signalé chaque lundi depuis le 20 juillet. **Quand le healthcheck passe au rouge, traite-le.** Les noms de modèles sont regroupés en haut de `src/llm.ts`.
 
 ## Structure
 
@@ -122,11 +125,14 @@ mon-agent-news/
 │   ├── daily-digest.yml       # crons 05:07 + rattrapage 08:07 UTC (mail ~8h Paris)
 │   ├── monthly-digest.yml     # bilan mensuel le 1er du mois (rattrapage le 2)
 │   ├── llm-healthcheck.yml    # test hebdo de chaque provider LLM (lundi)
+│   ├── catchup-digest.yml     # rattrapage manuel des jours partis en mode dégradé
 │   └── notify-failure.yml     # ouvre une issue auto si un workflow échoue/timeout
 ├── src/
-│   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini
+│   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini + retry
+│   ├── digest-core.ts         # scoring et rédaction du digest (partagés)
 │   ├── collect.ts             # collecte RSS + fetch contenu + scoring LLM
 │   ├── digest.ts              # synthèse quotidienne + email (mode dégradé garanti)
+│   ├── catchup.ts             # régénère les digests d'un jour passé + email
 │   ├── monthly.ts             # bilan mensuel : outils du mois selon ton profil
 │   └── email.ts               # rendu HTML des emails + envoi Resend avec retry
 ├── config/
@@ -136,6 +142,38 @@ mon-agent-news/
 │   ├── digests/               # MD quotidiens + monthly/ (auto-commités)
 │   └── sent.json              # tracker URL → date d'envoi (anti-doublons, purge 60j)
 └── package.json
+```
+
+## Rattraper des jours partis en mode dégradé
+
+Si la chaîne LLM tombe, le digest part quand même mais en mode dégradé : articles
+bruts, sans notation ni résumé. Les articles restent stockés dans
+`data/articles/` — rien n'est perdu, ils n'ont juste jamais été résumés.
+
+Une fois la cause corrigée (vérifier d'abord avec le workflow **LLM Health
+Check**), lance le workflow **Catch-up Digest** depuis l'onglet Actions, en
+passant les jours à rattraper séparés par des espaces :
+
+```
+2026-09-04 2026-09-05 2026-09-06 2026-09-07
+```
+
+Pour chaque jour, il note et résume les articles, réécrit
+`data/articles/<jour>.json` avec les scores, envoie un mail
+« 📰 Digest (rattrapage) — <jour> » et remplace `data/digests/<jour>-degraded.md`
+par un `<jour>.md` propre (sans ça, le bilan mensuel compterait le jour deux fois).
+
+Les articles de ces jours-là avaient été marqués « envoyés » dans `sent.json`
+sans l'avoir été : le rattrapage libère ces entrées avant de commencer, puis ne
+remarque que ce qui part réellement. La déduplication reste active **entre** les
+jours rattrapés. Si la chaîne LLM est toujours en panne, le rattrapage s'arrête
+au premier jour au lieu d'envoyer un second digest dégradé.
+
+En local :
+
+```bash
+MISTRAL_API_KEY=xxx RESEND_API_KEY=xxx EMAIL_TO=toi@exemple.fr \
+  npm run catchup -- 2026-09-04 2026-09-05
 ```
 
 ## Améliorations possibles plus tard
