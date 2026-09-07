@@ -9,7 +9,11 @@
 // mais on sérialise à l'intérieur d'un domaine, avec une pause entre deux
 // requêtes vers le même hôte.
 
-const SAME_HOST_DELAY_MS = 1500;
+// 5 s et non 1,5 s : Reddit limite durement les IP de datacenter, et les
+// runners GitHub en sont. À 1,5 s, deux flux Reddit sur cinq passaient encore
+// en 429. La collecte tourne dans un workflow de 20 min pour ~6 min de travail,
+// la marge est là.
+const SAME_HOST_DELAY_MS = 5000;
 
 function hostOf(url: string): string {
   try {
