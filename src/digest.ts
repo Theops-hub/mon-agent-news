@@ -70,29 +70,36 @@ async function loadRecentArticles(): Promise<Article[]> {
 // La garde ne doit donc pas dépendre du contenu de sent.json, mais constater
 // qu'un digest du jour existe déjà. FORCE_DIGEST=1 la contourne pour un
 // renvoi manuel volontaire.
-async function digestAlreadySentToday(today: string): Promise<boolean> {
+// Renvoie le nom du digest du jour déjà présent, ou null. On rend le NOM et pas
+// un booléen pour que le log nomme le fichier réellement trouvé : annoncer
+// « 2026-09-29.md existe » alors que c'est le -degraded.md qui est là égare
+// quiconque débogue.
+async function digestAlreadySentToday(today: string): Promise<string | null> {
   const dir = path.resolve("data/digests");
   for (const name of [`${today}.md`, `${today}-degraded.md`]) {
     try {
       await fs.access(path.join(dir, name));
-      return true;
+      return name;
     } catch {
       // absent : on continue
     }
   }
-  return false;
+  return null;
 }
 
 async function main() {
   console.log("Génération du digest...");
 
   const todayGuard = new Date().toISOString().slice(0, 10);
-  if (await digestAlreadySentToday(todayGuard)) {
+  const existing = await digestAlreadySentToday(todayGuard);
+  if (existing) {
     if (process.env.FORCE_DIGEST === "1") {
-      console.warn(`Digest du ${todayGuard} déjà présent, mais FORCE_DIGEST=1 — envoi quand même.`);
+      console.warn(
+        `Digest du ${todayGuard} déjà présent (data/digests/${existing}), mais FORCE_DIGEST=1 — envoi quand même.`
+      );
     } else {
       console.log(
-        `Digest du ${todayGuard} déjà envoyé (data/digests/${todayGuard}.md existe). Rien à faire — un seul digest par jour.`
+        `Digest du ${todayGuard} déjà envoyé (data/digests/${existing} existe). Rien à faire — un seul digest par jour.`
       );
       return;
     }
