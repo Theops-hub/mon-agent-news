@@ -194,7 +194,13 @@ export async function generateDigest(
   const articlesText = top
     .map(
       (a) =>
-        `- [${a.category}] **${a.title}** (${a.source}, fiabilité ${a.trust ?? "verified"}, score ${a.score})\n  Résumé : ${a.summary}\n  Lien : ${a.link}`
+        `- [${a.category}] **${a.title}** (${a.source}, fiabilité ${a.trust ?? "verified"}${
+          typeof a.score === "number" ? `, score ${a.score}` : ", non noté"
+        })\n  ${
+          a.summary
+            ? `Résumé : ${a.summary}`
+            : `Extrait brut (non résumé, à traiter avec prudence) : ${(a.contentSnippet ?? "").slice(0, 400) || "aucun contenu disponible"}`
+        }\n  Lien : ${a.link}`
     )
     .join("\n\n");
 

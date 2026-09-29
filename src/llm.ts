@@ -108,8 +108,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // backoff calculé, mais reste plafonné pour ne pas manger le budget du workflow.
 // Le jitter évite que tous les batches se resynchronisent sur la même fenêtre de quota.
 function backoffMs(attempt: number, err: unknown): number {
-  const isRateLimit = err instanceof LLMHttpError && err.status === 429;
-  const base = isRateLimit ? RATE_LIMIT_BACKOFF_BASE_MS : BACKOFF_BASE_MS;
+  // 429 (quota) ET 503 (« this model is currently experiencing high demand »)
+  // méritent la patience longue : ni un quota ni une saturation de modèle ne se
+  // résorbent en 2 secondes. Le 29 septembre 2026, Gemini a renvoyé 503 pendant
+  // cinq minutes d'affilée et le backoff court de 2 s/4 s n'avait aucune chance.
+  // Les autres transitoires (réseau, 500, timeout) gardent le backoff court.
+  const isCongested =
+    err instanceof LLMHttpError && (err.status === 429 || err.status === 503);
+  const base = isCongested ? RATE_LIMIT_BACKOFF_BASE_MS : BACKOFF_BASE_MS;
   const exponential = Math.min(base * 2 ** (attempt - 1), BACKOFF_CAP_MS);
   const retryAfterMs = err instanceof LLMHttpError ? err.retryAfterMs : undefined;
   const wait = retryAfterMs === undefined ? exponential : Math.min(retryAfterMs, BACKOFF_CAP_MS);
