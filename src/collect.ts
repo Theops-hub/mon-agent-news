@@ -16,6 +16,12 @@ const FETCH_CONCURRENCY = 5;
 // Rétention des fichiers d'articles, alignée sur celle de sent.json (60 j) :
 // au-delà, ils ne servent plus ni au digest (fenêtre 2 j) ni à la déduplication.
 const ARTICLES_RETENTION_DAYS = 60;
+// Budget alloué à la notation LLM. Le workflow coupe à 25 min ; il faut laisser
+// de quoi récupérer les flux, télécharger les contenus, écrire le fichier et le
+// committer. Sans ce plafond, un provider rate-limité fait consommer tout le
+// budget en attentes puis le job est tué avant la sauvegarde — la collecte du
+// jour est alors intégralement perdue (28 et 29 septembre 2026).
+const SCORING_BUDGET_MS = Number(process.env.SCORING_BUDGET_MS ?? 9 * 60_000);
 
 // Au moins un provider LLM doit être configuré ; le module llm.ts gère le fallback.
 if (!process.env.MISTRAL_API_KEY && !process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
@@ -177,8 +183,11 @@ async function main() {
   const fetchedCount = enriched.filter((a) => a.fullContent).length;
   console.log(`Contenu complet récupéré pour ${fetchedCount}/${enriched.length} articles`);
 
-  // 4. Scoring par batch (logique partagée avec le rattrapage, cf. digest-core.ts)
-  const scored = await scoreInBatches(enriched);
+  // 4. Scoring par batch (logique partagée avec le rattrapage, cf. digest-core.ts),
+  // borné dans le temps pour que la sauvegarde ait toujours lieu.
+  const scoringDeadline = Date.now() + SCORING_BUDGET_MS;
+  console.log(`Notation de ${enriched.length} articles (budget ${Math.round(SCORING_BUDGET_MS / 60_000)} min)...`);
+  const scored = await scoreInBatches(enriched, scoringDeadline);
 
   // 5. Filtrage par score minimum. Un article SANS score n'a pas été jugé non
   // pertinent : son batch a échoué. On le garde — l'absence de note n'est pas

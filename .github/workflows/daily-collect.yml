@@ -19,9 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     # Filet de sécurité absolu contre les runs fous (le 10 mai 2026 un run
     # avait tourné 6h05 et vidé le quota Actions). Le travail réel prend ~6 min ;
-    # 20 min laissent de la marge pour les jours de forte actualité, depuis que
-    # collect.ts se termine par un process.exit explicite (fix du 11 juin 2026).
-    timeout-minutes: 20
+    # 25 min, et surtout : collect.ts borne lui-même la notation LLM à 9 min
+    # (SCORING_BUDGET_MS) puis sauvegarde quoi qu'il arrive. C'est ce budget
+    # interne qui protège la collecte, pas ce timeout — un job tué ici ne
+    # committe rien et perd la journée, comme les 28 et 29 septembre 2026.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
 

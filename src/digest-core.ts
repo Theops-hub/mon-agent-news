@@ -89,14 +89,41 @@ ${articlesText}`;
 // Note et résume une liste d'articles, par batches successifs. Les articles
 // dont le batch échoue ressortent tels quels, sans score : c'est à l'appelant
 // de décider quoi en faire (surtout pas de les traiter comme des zéros).
-export async function scoreInBatches(articles: Article[]): Promise<Article[]> {
+//
+// `deadline` est un garde-fou vital, pas une optimisation. Quand les providers
+// rate-limitent, chaque batch peut coûter plusieurs minutes d'attentes légitimes
+// (Gemini réclame ~47 s, Mistral autant). Les 28 et 29 septembre 2026, la
+// collecte a été tuée par le timeout du workflow EN PLEINE ATTENTE : le fichier
+// d'articles n'était pas encore écrit, et la journée entière a été perdue.
+// Passé la deadline, on arrête de noter et on rend la main : des articles non
+// notés valent infiniment mieux que pas d'articles du tout.
+export async function scoreInBatches(
+  articles: Article[],
+  deadline?: number
+): Promise<Article[]> {
   const batches = chunk(articles, SCORING_BATCH_SIZE);
   const scored: Article[] = [];
+
   for (let b = 0; b < batches.length; b++) {
+    if (deadline !== undefined && Date.now() >= deadline) {
+      const remaining = batches.slice(b).flat();
+      console.warn(
+        `Budget de scoring épuisé après ${b}/${batches.length} batch(es) — ` +
+          `${remaining.length} article(s) conservés sans score pour ne pas perdre la collecte.`
+      );
+      scored.push(...remaining);
+      break;
+    }
+
     const result = await scoreAndSummarize(batches[b]);
     scored.push(...result);
+
+    // Pas de pause si elle nous ferait dépasser la deadline : autant garder le
+    // temps restant pour un batch utile.
     if (b < batches.length - 1) {
-      await new Promise((r) => setTimeout(r, SCORING_BATCH_PAUSE_MS));
+      const pauseOk =
+        deadline === undefined || Date.now() + SCORING_BATCH_PAUSE_MS < deadline;
+      if (pauseOk) await new Promise((r) => setTimeout(r, SCORING_BATCH_PAUSE_MS));
     }
   }
   return scored;
