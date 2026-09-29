@@ -262,18 +262,45 @@ export const PROVIDERS: ProviderDef[] = [
 // Un provider, avec retry sur les erreurs transitoires. Exporté pour que le
 // healthcheck teste dans les mêmes conditions que la production : un 503
 // passager ne doit pas être signalé comme une panne de provider.
+// Seuil au-delà duquel une attente est considérée « longue » (le palier gratuit
+// de Gemini demande couramment 47 à 60 s).
+//
+// Arbitrage, et il compte : le quota gratuit compte les REQUÊTES (« limit: 20 »),
+// pas le temps. Attendre est donc gratuit, réessayer coûte cher. On honore l'attente
+// conseillée — sinon la chaîne échoue alors qu'il suffisait de patienter — mais une
+// SEULE fois par provider et par appel, pour ne pas dépenser trois requêtes là où
+// deux suffisent. Un run de collecte a 9 min de budget, largement de quoi.
+const LONG_WAIT_THRESHOLD_MS = 30_000;
+const MAX_LONG_WAITS_PER_CALL = 1;
+
 export async function callProvider(
   provider: ProviderDef,
   opts: LLMOptions,
   maxAttempts = MAX_ATTEMPTS
 ): Promise<string> {
   let lastError: unknown;
+  let longWaits = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await provider.call(opts);
     } catch (err) {
       lastError = err;
       if (isPermanent(err)) throw err;
+
+      const advised = err instanceof LLMHttpError ? err.retryAfterMs : undefined;
+      const isLongWait = advised !== undefined && advised > LONG_WAIT_THRESHOLD_MS;
+
+      // Une longue attente déjà honorée et toujours en échec : insister
+      // dépenserait des requêtes du quota sans rien changer.
+      if (isLongWait && longWaits >= MAX_LONG_WAITS_PER_CALL) {
+        console.warn(
+          `${provider.name} : toujours saturé après une attente de ${Math.round(advised / 1000)}s — ` +
+            `bascule sans dépenser d'autres requêtes.`
+        );
+        throw err;
+      }
+      if (isLongWait) longWaits++;
+
       if (attempt === maxAttempts) break;
       const wait = backoffMs(attempt, err);
       console.warn(
