@@ -57,8 +57,47 @@ async function loadRecentArticles(): Promise<Article[]> {
   return all;
 }
 
+// UN SEUL digest par jour, quoi qu'il arrive.
+//
+// Le cron de rattrapage (08:07) existe pour couvrir un envoi du matin raté.
+// Il s'appuyait implicitement sur sent.json : tous les articles candidats y
+// étant marqués, il ne trouvait plus rien de neuf et n'envoyait rien. Depuis
+// que seuls les articles réellement présents dans le digest y sont marqués
+// (correctif de septembre 2026), il redécouvrait les articles hors du top 30
+// comme « nouveaux » et envoyait un SECOND digest — souvent dégradé, le quota
+// LLM ayant été consommé par le premier.
+//
+// La garde ne doit donc pas dépendre du contenu de sent.json, mais constater
+// qu'un digest du jour existe déjà. FORCE_DIGEST=1 la contourne pour un
+// renvoi manuel volontaire.
+async function digestAlreadySentToday(today: string): Promise<boolean> {
+  const dir = path.resolve("data/digests");
+  for (const name of [`${today}.md`, `${today}-degraded.md`]) {
+    try {
+      await fs.access(path.join(dir, name));
+      return true;
+    } catch {
+      // absent : on continue
+    }
+  }
+  return false;
+}
+
 async function main() {
   console.log("Génération du digest...");
+
+  const todayGuard = new Date().toISOString().slice(0, 10);
+  if (await digestAlreadySentToday(todayGuard)) {
+    if (process.env.FORCE_DIGEST === "1") {
+      console.warn(`Digest du ${todayGuard} déjà présent, mais FORCE_DIGEST=1 — envoi quand même.`);
+    } else {
+      console.log(
+        `Digest du ${todayGuard} déjà envoyé (data/digests/${todayGuard}.md existe). Rien à faire — un seul digest par jour.`
+      );
+      return;
+    }
+  }
+
   const allArticles = await loadRecentArticles();
   console.log(`${allArticles.length} articles sur les ${DIGEST_WINDOW_DAYS} derniers jours`);
 

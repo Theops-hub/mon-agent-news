@@ -39,7 +39,8 @@ export async function scoreAndSummarize(articles: Article[]): Promise<Article[]>
     .map((a, i) => {
       const body = a.fullContent || a.contentSnippet || "";
       const label = a.fullContent ? "Contenu" : "Extrait (contenu complet indisponible)";
-      return `[${i}] Source: ${a.source} | Catégorie: ${a.category} | Publié: ${a.pubDate}\nTitre: ${a.title}\n${label} : ${body}`;
+      const trust = a.trust ?? "verified";
+      return `[${i}] Source: ${a.source} (fiabilité: ${trust}) | Catégorie: ${a.category} | Publié: ${a.pubDate}\nTitre: ${a.title}\n${label} : ${body}`;
     })
     .join("\n\n---\n\n");
 
@@ -50,6 +51,12 @@ Voici ${articles.length} articles avec leur contenu (souvent complet). Pour CHAC
 - "score" : pertinence pour mes intérêts de 1 à 10
 - "reason" : 1 phrase expliquant la note
 - "summary" : résumé en 3-5 phrases en français basé sur le contenu fourni (même si l'article est en anglais). Couvre les faits clés, pas seulement le titre.
+
+FIABILITÉ DE LA SOURCE : chaque article porte un niveau de fiabilité.
+- "verified" : presse, laboratoire, blog d'auteur identifié. Fait rapporté.
+- "community" : post ou avis d'un utilisateur. C'est un SIGNAL, pas une information établie. Un benchmark maison, un chiffre de performance ou un retour d'expérience isolé n'a été vérifié par personne.
+- "promotional" : l'auteur présente son propre produit. C'est un argumentaire.
+Dans le champ "summary", n'énonce JAMAIS une affirmation "community" ou "promotional" comme un fait : attribue-la explicitement (« un utilisateur rapporte… », « l'éditeur annonce… »). Baisse le score de 2 points si tout l'intérêt de l'article repose sur un chiffre non vérifiable venant d'une telle source. Si un article "verified" du lot corrobore l'information, dis-le dans "reason".
 
 RÈGLE DE FRAÎCHEUR (prioritaire sur tout le reste) : je ne veux QUE de l'actualité récente. Si le contenu est manifestement ancien — année passée dans le titre (ex. « ... (2019) »), billet de blog ou paper vieux de plusieurs mois/années remis en avant (fréquent sur Hacker News), rétrospective, anniversaire — donne un score de 3 maximum, même si le sujet correspond à mes intérêts. Seule exception : un fait NOUVEAU à propos d'un sujet ancien (nouvelle version, nouvelle décision, nouveau résultat) reste noté normalement.
 
@@ -160,7 +167,7 @@ export async function generateDigest(
   const articlesText = top
     .map(
       (a) =>
-        `- [${a.category}] **${a.title}** (${a.source}, score ${a.score})\n  Résumé : ${a.summary}\n  Lien : ${a.link}`
+        `- [${a.category}] **${a.title}** (${a.source}, fiabilité ${a.trust ?? "verified"}, score ${a.score})\n  Résumé : ${a.summary}\n  Lien : ${a.link}`
     )
     .join("\n\n");
 
@@ -175,6 +182,12 @@ RÈGLES STRICTES — TU DOIS LES RESPECTER :
 ============================================
 
 1. **N'INVENTE RIEN.** Tu ne dois utiliser QUE les informations présentes dans les résumés ci-dessus. Pas de chiffres, dates, montants, statistiques, noms d'entreprise, URLs ou faits qui ne sont pas explicitement cités dans un article. En cas de doute, **omets**.
+
+1bis. **FIABILITÉ — attribue, n'affirme pas.** Chaque article porte un niveau de fiabilité.
+   - \`verified\` : tu peux l'écrire comme un fait.
+   - \`community\` : post ou avis d'utilisateur. Tu dois attribuer (« un utilisateur de r/LocalLLaMA rapporte… », « d'après un retour sur Ask HN… ») et ne JAMAIS présenter ses chiffres comme établis. Un benchmark publié par un particulier est une mesure isolée, pas un résultat.
+   - \`promotional\` : l'éditeur parle de son produit. Attribue de même (« l'éditeur annonce… », « selon sa page de lancement… ») et ne reprends jamais une promesse commerciale comme un constat.
+   Si un article \`verified\` confirme ce qu'avance une source \`community\` ou \`promotional\`, appuie-toi sur le \`verified\` et cite les deux. À l'inverse, n'ouvre jamais une section ni l'introduction sur une affirmation non vérifiée.
 
 2. **URLS** : N'utilise QUE les URLs présentes dans le champ "Lien" des articles ci-dessus. Tu ne dois jamais générer une URL toi-même. Si tu cites un projet/outil dont l'URL n'est pas dans les sources, ne mets pas de lien — mentionne juste le nom.
 
@@ -206,7 +219,7 @@ Mouvements de marché, levées, deals, lancements produits, réglementation tech
 Le lecteur est développeur solo ET entrepreneur : il veut lancer une activité en ligne vite quand une fenêtre s'ouvre. N'inclus ici QUE des sujets relevant d'un de ces deux signaux, et dis lequel :
 
 1. **Capacité nouvelle** — un modèle, une API, un outil ou une baisse de prix qui rend faisable et vendable un service qui ne l'était pas avant. Écris ce que ça permet de VENDRE, pas seulement ce que ça permet de faire.
-2. **Traction observable** — un produit, un indie hacker ou une startup qui montre des revenus, une croissance ou une levée sur un créneau réplicable par une personne seule. Donne les chiffres cités dans l'article, jamais d'estimation de ta part.
+2. **Traction observable** — un produit, un indie hacker ou une startup qui montre des revenus, une croissance ou une levée sur un créneau réplicable par une personne seule. Donne les chiffres cités dans l'article, jamais d'estimation de ta part. **Un chiffre de revenus annoncé par l'intéressé lui-même (source \`community\` ou \`promotional\`) n'est pas une preuve de traction** : soit tu l'attribues explicitement comme une déclaration, soit tu ne retiens pas la piste. Une levée de fonds rapportée par la presse est un fait ; un « je fais 10k/mois » sur un forum est une affirmation.
 
 Pour chaque piste, en 3 à 5 phrases : ce qui vient de changer, ce que ça rend vendable, qui paierait, et le premier pas concret. Termine par le ou les liens Markdown.
 

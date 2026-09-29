@@ -12,6 +12,12 @@ on:
     # La déduplication par URL garantit qu'aucun article n'est envoyé deux fois.
     - cron: "7 8 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Renvoyer même si le digest du jour est déjà parti"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -42,6 +48,9 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          # Un seul digest par jour : digest.ts sort sans rien envoyer si celui
+          # du jour existe déjà. Seul un lancement manuel peut forcer le renvoi.
+          FORCE_DIGEST: ${{ inputs.force && '1' || '' }}
         run: npm run digest
 
       - name: Commit digest

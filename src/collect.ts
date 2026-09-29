@@ -116,6 +116,7 @@ async function fetchRecentArticles(source: Source): Promise<Article[]> {
         link: item.link || "",
         source: source.name,
         category: source.category,
+        trust: source.trust ?? "verified",
         pubDate: itemDate(item),
         contentSnippet: (item.contentSnippet || item.content || "").slice(0, 500),
       }));

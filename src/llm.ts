@@ -30,7 +30,10 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 // Retry : 3 tentatives par provider, backoff 2s → 4s, plafonné à 60s.
 const MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 2_000;
-const BACKOFF_CAP_MS = 60_000;
+// 90 s : Gemini demande couramment ~47 s sur un 429 de palier gratuit. Un
+// plafond à 60 s laissait de la marge, mais il faut pouvoir honorer une
+// consigne au-delà de la minute sans la tronquer.
+const BACKOFF_CAP_MS = 90_000;
 // Un 429 se traite différemment d'un 503 : les quotas gratuits se comptent par
 // MINUTE, donc attendre 2s puis 4s ne sert à rien — il faut laisser la fenêtre
 // se vider. Le rattrapage du 7 septembre 2026 l'a appris à ses dépens : il
@@ -67,6 +70,26 @@ export class LLMHttpError extends Error {
 // Tout le reste — 429, 5xx, coupure réseau, timeout — est traité comme transitoire.
 function isPermanent(err: unknown): boolean {
   return err instanceof LLMHttpError && [400, 401, 403, 404].includes(err.status);
+}
+
+// Gemini n'envoie PAS d'en-tête Retry-After : il écrit le délai dans le corps
+// de l'erreur (« Please retry in 46.991240965s. »), et accessoirement dans un
+// bloc RetryInfo (« retryDelay": "47s" »). Sans le lire, on repartait au bout
+// de 20 s puis 40 s — toujours juste en dessous de ce que le serveur exigeait,
+// donc un échec systématique à un cheveu près.
+function parseRetryFromBody(body: string): number | undefined {
+  const patterns = [
+    /retry in\s+([\d.]+)\s*s/i,
+    /"retryDelay"\s*:\s*"([\d.]+)s"/i,
+  ];
+  for (const re of patterns) {
+    const m = body.match(re);
+    if (m) {
+      const seconds = Number(m[1]);
+      if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+    }
+  }
+  return undefined;
 }
 
 // En-tête Retry-After : soit un nombre de secondes, soit une date HTTP.
@@ -116,10 +139,14 @@ const ERROR_EXCERPT_CHARS = 800;
 async function assertOk(res: Response): Promise<void> {
   if (res.ok) return;
   const errText = await res.text().catch(() => "");
+  // L'en-tête prime quand il existe ; sinon on lit le délai que le provider a
+  // écrit dans le corps de sa réponse.
+  const retryAfterMs =
+    parseRetryAfter(res.headers.get("retry-after")) ?? parseRetryFromBody(errText);
   throw new LLMHttpError(
     `HTTP ${res.status}: ${errText.slice(0, ERROR_EXCERPT_CHARS)}`,
     res.status,
-    parseRetryAfter(res.headers.get("retry-after"))
+    retryAfterMs
   );
 }
 

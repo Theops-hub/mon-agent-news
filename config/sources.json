@@ -3,77 +3,92 @@
     {
       "name": "Hacker News (front page)",
       "url": "https://hnrss.org/frontpage",
-      "category": "tech"
+      "category": "tech",
+      "trust": "verified"
     },
     {
       "name": "Hacker News (Show HN)",
       "url": "https://hnrss.org/show",
-      "category": "tech"
+      "category": "tech",
+      "trust": "promotional"
     },
     {
       "name": "TechCrunch",
       "url": "https://techcrunch.com/feed/",
-      "category": "tech"
+      "category": "tech",
+      "trust": "verified"
     },
     {
       "name": "The Verge",
       "url": "https://www.theverge.com/rss/index.xml",
-      "category": "tech"
+      "category": "tech",
+      "trust": "verified"
     },
     {
       "name": "Ars Technica",
       "url": "https://feeds.arstechnica.com/arstechnica/index",
-      "category": "tech"
+      "category": "tech",
+      "trust": "verified"
     },
     {
       "name": "MIT Technology Review",
       "url": "https://www.technologyreview.com/feed/",
-      "category": "tech"
+      "category": "tech",
+      "trust": "verified"
     },
     {
       "name": "OpenAI Blog",
       "url": "https://openai.com/blog/rss.xml",
-      "category": "ia"
+      "category": "ia",
+      "trust": "verified"
     },
     {
       "name": "Google DeepMind",
       "url": "https://deepmind.google/blog/rss.xml",
-      "category": "ia"
+      "category": "ia",
+      "trust": "verified"
     },
     {
       "name": "Hugging Face Blog",
       "url": "https://huggingface.co/blog/feed.xml",
-      "category": "ia"
+      "category": "ia",
+      "trust": "verified"
     },
     {
       "name": "Simon Willison",
       "url": "https://simonwillison.net/atom/everything/",
-      "category": "ia"
+      "category": "ia",
+      "trust": "verified"
     },
     {
       "name": "Sebastian Raschka — Magazine",
       "url": "https://magazine.sebastianraschka.com/feed",
-      "category": "ia"
+      "category": "ia",
+      "trust": "verified"
     },
     {
       "name": "Latent Space",
       "url": "https://www.latent.space/feed",
-      "category": "ia"
+      "category": "ia",
+      "trust": "verified"
     },
     {
       "name": "r/LocalLLaMA",
       "url": "https://www.reddit.com/r/LocalLLaMA/.rss",
-      "category": "ia"
+      "category": "ia",
+      "trust": "community"
     },
     {
       "name": "Hacker News (Ask HN)",
       "url": "https://hnrss.org/ask",
-      "category": "business"
+      "category": "business",
+      "trust": "community"
     },
     {
       "name": "Product Hunt",
       "url": "https://www.producthunt.com/feed",
-      "category": "business"
+      "category": "business",
+      "trust": "promotional"
     }
   ],
   "interests": [
