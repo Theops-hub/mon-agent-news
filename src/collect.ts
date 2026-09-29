@@ -6,6 +6,7 @@ import path from "node:path";
 import sourcesConfig from "../config/sources.json" with { type: "json" };
 import { scoreInBatches } from "./digest-core.js";
 import { mapPerHostSerial } from "./host-queue.js";
+import { prefilter, type PrefilterConfig } from "./prefilter.js";
 import type { Source, Article } from "./types.js";
 
 const USER_AGENT =
@@ -183,32 +184,66 @@ async function main() {
   const fetchedCount = enriched.filter((a) => a.fullContent).length;
   console.log(`Contenu complet récupéré pour ${fetchedCount}/${enriched.length} articles`);
 
-  // 4. Scoring par batch (logique partagée avec le rattrapage, cf. digest-core.ts),
-  // borné dans le temps pour que la sauvegarde ait toujours lieu.
-  const scoringDeadline = Date.now() + SCORING_BUDGET_MS;
-  console.log(`Notation de ${enriched.length} articles (budget ${Math.round(SCORING_BUDGET_MS / 60_000)} min)...`);
-  const scored = await scoreInBatches(enriched, scoringDeadline);
+  // 4. Pré-sélection SANS LLM. Indispensable pour rester sur les paliers
+  // gratuits : noter les 148 articles demandait 13 appels, donc 13 occasions de
+  // tomber sur un 429 ou un 503. On n'en note que les plus prometteurs.
+  const pf = prefilter(enriched, sourcesConfig.prefilter as PrefilterConfig);
+  console.log(
+    `Pré-filtre : ${pf.candidates.length} candidat(s) retenu(s) sur ${enriched.length} ` +
+      `(${pf.duplicatesRemoved} doublon(s) inter-sources, ${pf.cappedBySource} écarté(s) par le plafond de source)`
+  );
 
-  // 5. Filtrage par score minimum. Un article SANS score n'a pas été jugé non
-  // pertinent : son batch a échoué. On le garde — l'absence de note n'est pas
-  // une mauvaise note. Auparavant `a.score ?? 0` les écrasait à zéro, et une
-  // panne LLM partielle jetait silencieusement des dizaines d'articles.
-  const unscoredCount = scored.filter((a) => typeof a.score !== "number").length;
+  // 5. Notation des seuls candidats, bornée dans le temps pour que la
+  // sauvegarde ait toujours lieu.
+  const scoringDeadline = Date.now() + SCORING_BUDGET_MS;
+  console.log(`Notation de ${pf.candidates.length} articles (budget ${Math.round(SCORING_BUDGET_MS / 60_000)} min)...`);
+  const scoredCandidates = await scoreInBatches(pf.candidates, scoringDeadline);
+
+  // Les non-candidats sont conservés tels quels, avec leur score heuristique :
+  // ils restent disponibles pour le digest et pour un rattrapage ultérieur.
+  const byLink = new Map(scoredCandidates.map((a) => [a.link, a]));
+  const scored = pf.all.map((a) => byLink.get(a.link) ?? a);
+
+  // 6. Filtrage par score minimum. Un article SANS score n'a pas été jugé non
+  // pertinent : soit il n'a pas été soumis au LLM (hors pré-filtre), soit son
+  // batch a échoué. On le garde dans les deux cas — l'absence de note n'est pas
+  // une mauvaise note, et ces articles restent utiles au digest et à un
+  // rattrapage ultérieur.
   const kept = scored.filter(
     (a) => typeof a.score !== "number" || a.score >= sourcesConfig.minScore
   );
-  const allUnscored = unscoredCount === scored.length;
+
+  // Deux « non notés » très différents, qu'il ne faut pas confondre dans les
+  // logs : ceux que le pré-filtre n'a jamais soumis (normal, attendu) et ceux
+  // dont le batch a échoué (anormal, signale une panne LLM).
+  const candidateLinks = new Set(pf.candidates.map((a) => a.link));
+  const failedScoring = scored.filter(
+    (a) => candidateLinks.has(a.link) && typeof a.score !== "number"
+  ).length;
+  const notSubmitted = scored.length - pf.candidates.length;
+  // « unscored » dans le fichier = la notation était hors service, pas
+  // simplement sélective. C'est ce que le digest lit pour son mode dégradé.
+  const allUnscored = failedScoring === pf.candidates.length;
 
   if (allUnscored) {
-    console.warn(`Scoring LLM totalement indisponible — sauvegarde des ${scored.length} articles bruts pour fallback digest`);
+    console.warn(
+      `Notation LLM totalement indisponible (${pf.candidates.length} candidat(s) en échec) — ` +
+        `sauvegarde des ${scored.length} articles bruts, classés par score heuristique`
+    );
   } else {
-    console.log(`${kept.length}/${scored.length} articles retenus (score ≥ ${sourcesConfig.minScore})`);
-    if (unscoredCount > 0) {
-      console.warn(`${unscoredCount} article(s) non noté(s) (batch de scoring en échec) — conservés sans score plutôt que jetés`);
+    const scoredOk = pf.candidates.length - failedScoring;
+    console.log(
+      `${scoredOk}/${pf.candidates.length} candidat(s) noté(s), ${kept.length}/${scored.length} articles conservés (seuil ${sourcesConfig.minScore})`
+    );
+    if (failedScoring > 0) {
+      console.warn(`${failedScoring} candidat(s) non noté(s) : batch en échec`);
+    }
+    if (notSubmitted > 0) {
+      console.log(`${notSubmitted} article(s) non soumis au LLM (hors pré-filtre), conservés avec leur score heuristique`);
     }
   }
 
-  // 6. Sauvegarde
+  // 7. Sauvegarde
   const today = new Date().toISOString().slice(0, 10);
   const outDir = path.resolve("data/articles");
   await fs.mkdir(outDir, { recursive: true });
@@ -219,7 +254,7 @@ async function main() {
   );
   console.log(`Sauvegardé : data/articles/${today}.json`);
 
-  // 7. Purge des fichiers trop anciens
+  // 8. Purge des fichiers trop anciens
   await pruneOldArticles(outDir);
 }
 

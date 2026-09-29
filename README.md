@@ -8,7 +8,7 @@ Agent IA autonome de veille tech/IA/géopolitique. 100% gratuit, t'appartient en
 - **Chaque matin (05:07 UTC, rattrapage à 08:07 — réception ~8h heure de Paris)** : compile les nouveaux articles, génère un compte-rendu structuré (IA & opportunités, tech & industrie, contexte mondial, et une section « À tester / appliquer » uniquement quand quelque chose est réellement actionnable), te l'envoie par email en HTML mis en page. Un tracker `data/sent.json` garantit qu'aucun article n'est envoyé deux fois — c'est aussi ce qui rend les runs de rattrapage inoffensifs.
 - **Le 1er du mois (06:07 UTC, rattrapage le 2)** : compare tous les digests quotidiens du mois écoulé et envoie un **bilan mensuel** court — les outils IA les plus intéressants pour ton stack (vibecoding, SaaS, apps web, Claude Code), l'état des LLM locaux, les tendances de fond, et UNE chose à tester. Le profil qui guide cette sélection est dans `config/sources.json` → `profile`.
 
-> ⚠️ **Les paliers gratuits ne suffisent pas au volume quotidien.** Un digest, c'est ~165 articles à noter, soit une dizaine d'appels avec le contenu complet. En septembre 2026, le quota Mistral épuisé et Gemini refusant les requêtes de taille réelle ont mis l'agent en mode dégradé pendant quatre jours, et le rattrapage a échoué deux fois pour la même raison. Une clé payante à petit budget sur **un seul** provider est le vrai correctif ; tout le reste est du contournement.
+> ⚠️ **Tout est calibré pour rester sur les paliers gratuits.** Le facteur limitant n'est pas le volume de tokens mais le **nombre d'appels** : chacun est une occasion de tomber sur un 429 (quota) ou un 503 (modèle saturé). Un pré-filtre sans LLM (`src/prefilter.ts`) ramène donc ~150 articles collectés à **40 candidats**, notés en **2 appels** au lieu de 8, plus 1 appel pour le digest — soit 3 par jour. Si tu ajoutes une clé payante un jour, monte `prefilter.limit` dans `config/sources.json` : c'est le seul réglage à toucher.
 
 Tout tourne sur GitHub Actions (gratuit sur repo public), avec une **chaîne de fallback LLM** (Mistral → Groq → Gemini, tous gratuits) et Resend (gratuit). Si tous les LLM plantent, l'email est envoyé quand même en mode dégradé (articles bruts groupés par catégorie). Si même ça échoue, une issue GitHub est ouverte automatiquement → tu reçois un email natif GitHub.
 
@@ -134,6 +134,7 @@ mon-agent-news/
 ├── src/
 │   ├── llm.ts                 # chaîne fallback Mistral → Groq → Gemini + retry
 │   ├── host-queue.ts          # sérialise les requêtes RSS par domaine
+│   ├── prefilter.ts           # pré-sélection sans LLM (tenir dans le gratuit)
 │   ├── feed-health.ts         # vérifie que chaque flux répond et date ses articles
 │   ├── send-digest.ts         # envoi d'un digest existant, sans appel LLM
 │   ├── digest-core.ts         # scoring et rédaction du digest (partagés)
@@ -150,6 +151,32 @@ mon-agent-news/
 │   └── sent.json              # tracker URL → date d'envoi (anti-doublons, purge 60j)
 └── package.json
 ```
+
+## Pré-filtre : comment les articles sont sélectionnés
+
+`config/sources.json` → `prefilter` contrôle la sélection, **sans aucun appel LLM** :
+
+| Réglage | Rôle |
+|---|---|
+| `limit` | nombre d'articles envoyés à la notation LLM (40) |
+| `perSourceCap` | plafond par source (6), pour qu'un flux bavard ne monopolise pas la sélection |
+| `keywords` | groupes de termes pondérés ; un poids négatif fait couler un sujet hors champ |
+
+Le filtre, dans l'ordre : score heuristique pour tous → déduplication du même
+sujet relayé par plusieurs sources (la source vérifiée gagne) → tri par
+pertinence puis fraîcheur → plafond par source → limite globale.
+
+Deux garde-fous appris à l'usage :
+- **Chaque groupe de mots-clés est plafonné à deux termes touchés.** Sans ça, un
+  post auto-promotionnel qui empile les mots-clés dans sa description passait
+  devant un rachat à 8 milliards au titre court.
+- **Une source `verified` reçoit un bonus.** À pertinence comparable, un fait
+  rapporté passe devant une affirmation à vérifier.
+
+**Aucun article n'est jeté** : la collecte sauvegarde tout. Le pré-filtre décide
+seulement qui mérite un appel LLM, et attribue à chacun un `heuristicScore` qui
+sert de classement de repli — c'est lui qui ordonne un digest dégradé, qui
+listait sinon les articles dans l'ordre arbitraire des flux.
 
 ## Sources et flux RSS
 

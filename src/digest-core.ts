@@ -13,11 +13,12 @@ import type { Article } from "./types.js";
 // que le digest mentionne, donc les seuls à marquer comme envoyés.
 export const DIGEST_TOP_N = 30;
 
-// Taille des batches de scoring. Elle arbitre entre volume du prompt (le
-// contenu complet est lourd) et NOMBRE d'appels — et c'est le nombre d'appels
-// qui coince : les offres gratuites limitent les requêtes par minute, pas les
-// tokens. 12 articles par appel divise par deux les requêtes d'un run.
-const SCORING_BATCH_SIZE = 12;
+// Taille des batches de scoring. Elle arbitre entre volume du prompt et NOMBRE
+// d'appels — et c'est le nombre d'appels qui coince : les paliers gratuits
+// limitent les requêtes, et chaque appel est une occasion de tomber sur un 429
+// ou un 503. Avec le pré-filtre qui ramène la sélection à ~40 articles,
+// 20 par appel suffit à tout noter en DEUX requêtes.
+const SCORING_BATCH_SIZE = 20;
 // Pause entre batches, calibrée pour rester sous les ~10 requêtes/minute des
 // paliers gratuits. À 1,5 s, le rattrapage du 7 septembre 2026 tapait ~40
 // req/min et se faisait rate-limiter dès le premier jour.
@@ -37,7 +38,9 @@ export async function scoreAndSummarize(articles: Article[]): Promise<Article[]>
   const interests = sourcesConfig.interests.map((i) => `- ${i}`).join("\n");
   const articlesText = articles
     .map((a, i) => {
-      const body = a.fullContent || a.contentSnippet || "";
+      // 1500 caractères suffisent à noter et résumer : au-delà, on alourdit le
+      // prompt sans gagner en qualité, et on limite la taille des batches.
+      const body = (a.fullContent || a.contentSnippet || "").slice(0, 1500);
       const label = a.fullContent ? "Contenu" : "Extrait (contenu complet indisponible)";
       const trust = a.trust ?? "verified";
       return `[${i}] Source: ${a.source} (fiabilité: ${trust}) | Catégorie: ${a.category} | Publié: ${a.pubDate}\nTitre: ${a.title}\n${label} : ${body}`;
@@ -153,7 +156,12 @@ function buildFallbackDigest(articles: Article[], startDate: string, endDate: st
   for (const [cat, list] of byCategory) {
     const title = categoryEmoji[cat] ?? cat;
     const items = list
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      // À défaut de note LLM, on classe par score heuristique : sans ça, un
+      // digest dégradé listait les articles dans l'ordre arbitraire des flux.
+      .sort(
+        (a, b) =>
+          (b.score ?? b.heuristicScore ?? 0) - (a.score ?? a.heuristicScore ?? 0)
+      )
       .map((a) => {
         const scoreTag = typeof a.score === "number" ? ` *(score ${a.score})*` : "";
         const summary = a.summary || a.contentSnippet || "";
@@ -186,9 +194,15 @@ export async function generateDigest(
     };
   }
 
-  // Tri par score décroissant, top N max pour rester dans les limites de tokens
-  const top = articles
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  // Tri par score décroissant, top N max pour rester dans les limites de tokens.
+  // À défaut de note LLM on retombe sur le score heuristique : sans ça, tous
+  // les articles non notés sont à égalité à 0 et le top N devient arbitraire —
+  // exactement le cas quand le pré-filtre n'a soumis qu'une partie du lot.
+  const top = [...articles]
+    .sort(
+      (a, b) =>
+        (b.score ?? b.heuristicScore ?? 0) - (a.score ?? a.heuristicScore ?? 0)
+    )
     .slice(0, DIGEST_TOP_N);
 
   const articlesText = top

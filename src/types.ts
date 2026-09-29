@@ -18,6 +18,11 @@ export type Article = {
   contentSnippet?: string;
   fullContent?: string;
   score?: number;
+  // Pertinence estimée sans LLM (src/prefilter.ts). Sert à choisir quels
+  // articles méritent un appel LLM, et de classement de repli quand la
+  // notation échoue — sans lui, un digest dégradé listait les articles dans
+  // l'ordre arbitraire des flux.
+  heuristicScore?: number;
   reason?: string;
   summary?: string;
 };

@@ -103,5 +103,121 @@
     "AUCUN INTÉRÊT pour l'actualité géopolitique, les conflits, les élections et les faits divers : ne jamais les remonter."
   ],
   "profile": "Développeur solo ET entrepreneur : il construit des SaaS, des applications web et des sites web avec des agents de codage IA (vibecoding intensif), et cherche activement des créneaux à exploiter pour lancer une activité en ligne rapidement quand une opportunité émerge. Abonné Claude Code Max (Anthropic) — tout ce qui améliore Claude Code ou s'y intègre (MCP, skills, workflows) l'intéresse directement. Il suit de près les LLM locaux / open-weight (Ollama, llama.cpp, LM Studio) et veut savoir immédiatement si une solution locale devient assez bonne pour compléter ou remplacer une partie de son usage cloud. Il ne veut PAS d'actualité géopolitique.",
-  "minScore": 7
+  "minScore": 7,
+  "prefilter": {
+    "_comment": "Pré-sélection sans LLM, pour tenir dans les paliers gratuits. limit = nombre d'articles envoyés à la notation. Ajuste les termes ici, pas dans le code.",
+    "limit": 40,
+    "perSourceCap": 6,
+    "keywords": [
+      {
+        "weight": 4,
+        "terms": [
+          "claude code",
+          "claude-code",
+          "mcp",
+          "model context protocol",
+          "cursor",
+          "codex",
+          "coding agent",
+          "agentic coding",
+          "vibecoding",
+          "agent harness",
+          "subagent",
+          "agents.md",
+          "copilot"
+        ]
+      },
+      {
+        "weight": 4,
+        "terms": [
+          "ollama",
+          "llama.cpp",
+          "lm studio",
+          "gguf",
+          "quantiz",
+          "open-weight",
+          "open weight",
+          "local model",
+          "local llm",
+          "vram",
+          "mlx",
+          "vllm"
+        ]
+      },
+      {
+        "weight": 3,
+        "terms": [
+          "open source",
+          "open-source",
+          "apache 2.0",
+          "mit license",
+          "weights",
+          "benchmark",
+          "paper",
+          "arxiv",
+          "fine-tun",
+          "context window"
+        ]
+      },
+      {
+        "weight": 3,
+        "terms": [
+          "arr",
+          "mrr",
+          "revenue",
+          "profitable",
+          "bootstrapped",
+          "indie hacker",
+          "solo founder",
+          "micro saas",
+          "saas",
+          "pricing",
+          "launch",
+          "side project"
+        ]
+      },
+      {
+        "weight": 2,
+        "terms": [
+          "llm",
+          "model",
+          "api",
+          "sdk",
+          "self-host",
+          "self host",
+          "cli",
+          "developer tool",
+          "framework",
+          "typescript",
+          "rust"
+        ]
+      },
+      {
+        "weight": 2,
+        "terms": [
+          "regulation",
+          "ai act",
+          "compliance",
+          "gdpr",
+          "copyright",
+          "lawsuit"
+        ]
+      },
+      {
+        "weight": -4,
+        "terms": [
+          "recipe",
+          "horoscope",
+          "celebrity",
+          "netflix series",
+          "football",
+          "basketball",
+          "trailer",
+          "labor day",
+          "black friday",
+          "deal alert"
+        ]
+      }
+    ]
+  }
 }
